@@ -1,8 +1,10 @@
 # yoyo
 
-**A coding agent that evolves itself. One commit per day.**
+**A trading agent that evolves itself. One commit per day.**
 
-This started as a ~200-line coding agent CLI built on [yoagent](https://github.com/yologdev/yoagent). Every day, yoyo reads its own source code, picks one improvement to make, implements it, tests it, and writes about what happened.
+This started as a ~200-line CLI agent built on [yoagent](https://github.com/yologdev/yoagent). Every day, yoyo reads its own source code, picks one improvement to make, implements it, tests it, and writes about what happened.
+
+Its mission: become a capable AI trading assistant for **US stocks** and **major cryptocurrencies** (BTC, ETH, etc.). It fetches market data, analyzes trends, provides trading advice, and — eventually — executes trades.
 
 It can't cheat. It can't skip. Every change must pass CI. Every failure is documented.
 
@@ -26,9 +28,9 @@ The entire history is in the git log. The journal is in [JOURNAL.md](JOURNAL.md)
 
 Open a [GitHub issue](../../issues/new/choose) and the agent will read it during its next session.
 
-- **Suggestions** → tell it what to learn
+- **Suggestions** → tell it what market data to support
 - **Bugs** → tell it what's broken
-- **Challenges** → give it a task and see if it can do it
+- **Challenges** → give it a trading scenario to analyze
 
 Issues with more 👍 get prioritized. The agent responds in its own voice.
 
@@ -53,6 +55,10 @@ Read the [Journal](JOURNAL.md) for daily updates, or browse the [git log](../../
 ## Built On
 
 [yoagent](https://github.com/yologdev/yoagent) — simple, effective agent loop in Rust. The library that makes this possible.
+
+## Disclaimer
+
+This is an experimental AI agent. It is NOT financial advice. Trading carries significant risk. Always do your own research.
 
 ## License
 

@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A self-evolving coding agent CLI built on [yoagent](https://github.com/yologdev/yoagent). The entire agent lives in `src/main.rs` (~230 lines of Rust). A daily GitHub Actions cron job (`scripts/evolve.sh`) runs the agent, which reads its own source, picks one improvement, implements it, and commits — if tests pass.
+A self-evolving **trading agent** CLI built on [yoagent](https://github.com/yologdev/yoagent). The agent lives primarily in `src/main.rs` (Rust) and evolves daily via a GitHub Actions cron job (`scripts/evolve.sh`). Each session, the agent reads its own source, picks one improvement toward becoming a better trading assistant, implements it, and commits — if tests pass.
+
+The agent's mission is to support **US stocks** and **major cryptocurrencies** (BTC, ETH, etc.) through conversational market data retrieval, analysis, trading advice, and eventually trade execution.
 
 ## Build & Test Commands
 
@@ -31,20 +33,22 @@ ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
 
 ## Architecture
 
-**Single-file agent**: `src/main.rs` is the entire application — a REPL that uses `yoagent::Agent` with `AnthropicProvider`, `default_tools()`, and an optional `SkillSet`. It handles streaming `AgentEvent`s (tool execution, text deltas, agent end) and renders them with ANSI colors.
+**Agent core**: `src/main.rs` — REPL that uses `yoagent::Agent` with `AnthropicProvider`, `default_tools()`, optional custom trading tools, and an optional `SkillSet`. Handles streaming `AgentEvent`s and renders with ANSI colors.
+
+**Custom tools** (to be built in `src/tools/`): Trading-specific tools implementing `yoagent::types::AgentTool` trait — market data fetching (CoinGecko, Yahoo Finance), search, analysis, and eventually trade execution.
 
 **Evolution loop** (`scripts/evolve.sh`): Verifies build → fetches GitHub issues (via `gh` CLI + `scripts/format_issues.py`) → pipes a structured prompt into the agent → verifies build after changes → commits or reverts → posts issue responses → pushes.
 
-**Skills** (`skills/`): Markdown files with YAML frontmatter loaded via `--skills ./skills`. Three skills define the agent's daily workflow:
-- `self-assess` — read own code, try tasks, find bugs/gaps
+**Skills** (`skills/`): Markdown files with YAML frontmatter loaded via `--skills ./skills`. Skills define the agent's daily workflow:
+- `self-assess` — read own code, try tasks, find bugs/gaps in trading capabilities
 - `evolve` — safely modify source, test, revert on failure
 - `communicate` — write journal entries and issue responses
 
 **State files** (read/written by the agent during evolution):
 - `IDENTITY.md` — the agent's constitution and rules (DO NOT MODIFY)
 - `JOURNAL.md` — chronological log of daily sessions (append at top, never delete)
-- `ROADMAP.md` — leveled curriculum of planned improvements
-- `LEARNINGS.md` — cached knowledge from internet lookups
+- `ROADMAP.md` — leveled curriculum: market data → analysis → advice → execution
+- `LEARNINGS.md` — cached knowledge about APIs, trading concepts, implementation patterns
 - `DAY_COUNT` — integer tracking current evolution day
 - `ISSUES_TODAY.md` — ephemeral, generated during evolution from GitHub issues (gitignored)
 - `ISSUE_RESPONSE.md` — ephemeral, agent writes this to respond to issues (gitignored)
@@ -58,3 +62,5 @@ These are enforced by the `evolve` skill and `evolve.sh`:
 - Never delete existing tests
 - One improvement per evolution session — small, focused changes only
 - Write tests before adding features
+- Never execute real trades without explicit user confirmation
+- Always include risk disclaimers in trading-related output

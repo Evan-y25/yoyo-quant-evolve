@@ -1,63 +1,62 @@
 # Roadmap
 
-My evolution path. I work through levels in order. Items come from three sources:
+My evolution path toward becoming a capable trading agent. I work through levels in order. Items come from three sources:
 - This planned curriculum
 - GitHub issues from the community (marked with issue number)
 - Things I discover myself during self-assessment (marked with [self])
 
-## Level 1: Survive (Day 1–7)
+## Level 1: Market Data (Day 1–7)
 
-Learn to not break. Build trust in my own code.
+Get eyes on the market. Build custom yoagent tools to fetch real-time data.
 
-- [ ] Write tests for existing functionality (REPL loop, command parsing)
-- [ ] Add error handling for API failures (bad key, network down, rate limit)
-- [ ] Add `--help` flag with usage info
-- [ ] Handle Ctrl+C gracefully (cancel current turn, don't kill process)
-- [ ] Fix any panics — catch all unwrap() calls and handle properly
-- [ ] Add `--version` flag
+- [ ] Create `src/tools/` module structure (mod.rs + individual tool files)
+- [ ] Implement `get_price` tool — fetch real-time price for crypto (CoinGecko) and stocks (Yahoo Finance)
+- [ ] Implement `search_symbol` tool — search for tokens/stocks by name or ticker
+- [ ] Implement `get_market_overview` tool — top N crypto by market cap + major US indices
+- [ ] Add `reqwest` and `serde_json` dependencies to Cargo.toml
+- [ ] Update system prompt to introduce trading assistant persona
+- [ ] Write tests for each new tool (mock HTTP responses)
 
-## Level 2: Be Useful (Day 8–20)
+## Level 2: Analysis (Day 8–20)
 
-Features that make me worth using for real work.
+Turn raw data into insights. Be useful for decision-making.
 
-- [ ] Git awareness: detect if we're in a repo, show branch in prompt
-- [ ] Auto-commit: commit changes after successful edits (with confirmation)
-- [ ] Diff preview: show what changed before applying edits
-- [ ] `/undo` command: revert the last file change
-- [ ] Conversation persistence: save/restore sessions to disk
-- [ ] `/save` and `/load` commands for sessions
-- [ ] Multi-line input: support pasting code blocks
-- [ ] Token usage tracking across entire session (cumulative)
-- [ ] Configurable system prompt via `--system` flag or config file
+- [ ] Implement `get_price_history` tool — OHLCV data for crypto and stocks
+- [ ] Calculate basic technical indicators in-tool (SMA, EMA, RSI, MACD)
+- [ ] Implement `get_news` tool — fetch market-relevant news headlines
+- [ ] Format data as tables/charts (ASCII) for terminal display
+- [ ] Add `market-analysis` skill — guide the agent through systematic market analysis
+- [ ] Support watchlist: user defines symbols, agent tracks them across sessions
+- [ ] Token/stock comparison: side-by-side metrics for multiple assets
 
-## Level 3: Be Smart (Day 21–40)
+## Level 3: Trading Advice (Day 21–40)
 
-Intelligence improvements. Think before acting.
+Think before speaking. Provide actionable, risk-aware trading suggestions.
 
-- [ ] Context management: warn when approaching token limit
-- [ ] Smart retry: if a tool fails, try a different approach
-- [ ] Permission system: confirm before destructive commands (rm, overwrite)
-- [ ] Project detection: read Cargo.toml, package.json, etc. and adapt
-- [ ] Auto-test: run project tests after making code changes
-- [ ] `/compact` command: summarize old conversation to free context
-- [ ] Error recovery: if edit_file fails, suggest alternatives
+- [ ] Add `trading-advisor` skill — structured buy/sell/hold recommendations
+- [ ] Portfolio analysis: given holdings, assess allocation and risk
+- [ ] Backtesting framework: test simple strategies against historical data
+- [ ] Alert conditions: "tell me when BTC drops below $X"
+- [ ] Risk scoring: rate trades by risk level with reasoning
+- [ ] Multi-timeframe analysis: combine daily/weekly/monthly trends
+- [ ] Correlation analysis: how assets move together
 
-## Level 4: Be Professional (Day 41–60)
+## Level 4: Trade Execution (Day 41–60)
 
-Features that separate a toy from a tool.
+From advice to action. Execute trades safely.
 
-- [ ] Multi-provider support: `--provider openai` / `--provider groq` flags
-- [ ] Config file: `~/.yoagent.toml` for defaults
-- [ ] MCP server connection via `--mcp` flag
-- [ ] Session logging: save full sessions with timestamps
-- [ ] `/replay` command: re-execute a saved session
-- [ ] Performance metrics: report response times per turn
-- [ ] Markdown rendering in terminal output
-- [ ] `/diff` command: show git diff of all changes made this session
+- [ ] Paper trading mode: simulate trades with virtual portfolio
+- [ ] Binance API integration: real crypto trading (with confirmation)
+- [ ] Position management: track open positions, P&L
+- [ ] Stop-loss / take-profit: automatic risk management
+- [ ] Order types: market, limit, stop orders
+- [ ] Trade journal: log every trade with reasoning and outcome
+- [ ] US stock broker API integration (Alpaca or similar)
 
 ## Boss Level: Prove It
 
-- [ ] Complete a SWE-bench Lite task successfully
-- [ ] Complete a Terminal-bench task successfully
-- [ ] Build a full project from a single prompt (Rust web API with tests)
-- [ ] Refactor a real open-source project's module without breaking tests
+- [ ] Paper trading portfolio beats buy-and-hold BTC over 30 days
+- [ ] Successfully identify a major trend reversal before it happens
+- [ ] A real trader uses me for a week and reports positive experience
+- [ ] Multi-strategy support: run different strategies on different assets simultaneously
+- [ ] Community-submitted strategy gets implemented and backtested
