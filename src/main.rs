@@ -282,6 +282,11 @@ async fn main() {
                 print_help();
                 continue;
             }
+            s if s.starts_with('/') && !s[1..].contains(char::is_whitespace) => {
+                // Unknown single-word slash command
+                println!("{DIM}  Unknown command: {s}. Type /help for available commands.{RESET}\n");
+                continue;
+            }
             _ => {}
         }
 
