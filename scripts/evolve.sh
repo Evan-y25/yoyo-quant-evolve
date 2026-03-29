@@ -170,8 +170,11 @@ rm -f "$PROMPT_FILE"
 echo ""
 echo "→ Session complete. Checking results..."
 
-# ── Step 5: Verify build and handle leftovers ──
-if cargo build --quiet 2>/dev/null && cargo test --quiet 2>/dev/null; then
+# ── Step 5: Format, verify build, and handle leftovers ──
+echo "  Formatting code..."
+cargo fmt
+
+if cargo build --quiet 2>/dev/null && cargo test --quiet 2>/dev/null && cargo clippy --all-targets -- -D warnings 2>/dev/null; then
     echo "  Build: PASS"
 else
     echo "  Build: FAIL — reverting source changes"
