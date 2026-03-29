@@ -51,9 +51,7 @@ case "${1:-status}" in
   run)
     echo "🚀 手动运行一次进化..."
     cd "$PROJECT_DIR"
-    export API_KEY="$API_KEY"
-    export PROVIDER="$PROVIDER"
-    ./scripts/evolve.sh
+    API_KEY="$API_KEY" PROVIDER="$PROVIDER" ./scripts/evolve.sh
     ;;
 
   *)
