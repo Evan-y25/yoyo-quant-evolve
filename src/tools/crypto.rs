@@ -6,15 +6,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::time::Duration;
 use yoagent::types::*;
 
 use super::format::{change_emoji, format_change, format_large_number_usd, format_price};
+use super::http::{create_client, fetch_json_with_retry};
 
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
 const YAHOO_CHART_BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
-const USER_AGENT: &str = "yoyo-trading-agent/0.1";
-const TIMEOUT_SECS: u64 = 10;
 
 pub struct GetPriceTool {
     client: Client,
@@ -23,11 +21,7 @@ pub struct GetPriceTool {
 impl GetPriceTool {
     pub fn new() -> Self {
         Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(TIMEOUT_SECS))
-                .user_agent(USER_AGENT)
-                .build()
-                .expect("Failed to create HTTP client"),
+            client: create_client(),
         }
     }
 }
@@ -128,20 +122,7 @@ async fn fetch_coingecko_price(client: &Client, coin_id: &str) -> Result<String,
         coin_id.to_lowercase()
     );
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("CoinGecko API returned status {}", resp.status()));
-    }
-
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let data = fetch_json_with_retry(client, &url).await?;
 
     let coin_data = data.get(coin_id.to_lowercase().as_str())
         .ok_or_else(|| format!("No data found for '{}'. Try using the CoinGecko ID (e.g., 'bitcoin' not 'BTC'). Use the search_symbol tool to find the correct ID.", coin_id))?;
@@ -172,20 +153,7 @@ async fn fetch_yahoo_price(client: &Client, symbol: &str) -> Result<String, Stri
         YAHOO_CHART_BASE, symbol, symbol
     );
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Yahoo Finance API returned status {}", resp.status()));
-    }
-
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let data = fetch_json_with_retry(client, &url).await?;
 
     let result = data["chart"]["result"]
         .as_array()

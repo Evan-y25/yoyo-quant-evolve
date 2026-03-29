@@ -5,15 +5,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::time::Duration;
 use yoagent::types::*;
 
 use super::format::{change_dot, format_change, format_large_number_usd, format_price};
+use super::http::{create_client_with_timeout, fetch_json_with_retry};
 
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
 const YAHOO_CHART_BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
-const USER_AGENT: &str = "yoyo-trading-agent/0.1";
-const TIMEOUT_SECS: u64 = 15;
 
 pub struct GetMarketOverviewTool {
     client: Client,
@@ -22,11 +20,7 @@ pub struct GetMarketOverviewTool {
 impl GetMarketOverviewTool {
     pub fn new() -> Self {
         Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(TIMEOUT_SECS))
-                .user_agent(USER_AGENT)
-                .build()
-                .expect("Failed to create HTTP client"),
+            client: create_client_with_timeout(15),
         }
     }
 }

@@ -5,12 +5,11 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::time::Duration;
 use yoagent::types::*;
 
+use super::http::{create_client, fetch_json_with_retry};
+
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
-const USER_AGENT: &str = "yoyo-trading-agent/0.1";
-const TIMEOUT_SECS: u64 = 10;
 
 pub struct SearchSymbolTool {
     client: Client,
@@ -19,11 +18,7 @@ pub struct SearchSymbolTool {
 impl SearchSymbolTool {
     pub fn new() -> Self {
         Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(TIMEOUT_SECS))
-                .user_agent(USER_AGENT)
-                .build()
-                .expect("Failed to create HTTP client"),
+            client: create_client(),
         }
     }
 }
@@ -96,20 +91,7 @@ impl AgentTool for SearchSymbolTool {
 async fn search_coingecko(client: &Client, query: &str) -> Result<String, String> {
     let url = format!("{}/search?query={}", COINGECKO_BASE, query);
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("CoinGecko returned status {}", resp.status()));
-    }
-
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let data = fetch_json_with_retry(client, &url).await?;
 
     let coins = data["coins"]
         .as_array()
