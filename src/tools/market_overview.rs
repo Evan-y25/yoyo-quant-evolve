@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::time::Duration;
 use yoagent::types::*;
 
+use super::format::{change_dot, format_change, format_large_number_usd, format_price};
+
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
 const YAHOO_CHART_BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
 const USER_AGENT: &str = "yoyo-trading-agent/0.1";
@@ -129,12 +131,7 @@ async fn fetch_top_crypto(client: &Client, limit: usize) -> Result<String, Strin
         let change = coin["price_change_percentage_24h"].as_f64().unwrap_or(0.0);
         let mcap = coin["market_cap"].as_f64().unwrap_or(0.0);
 
-        let change_str = format!(
-            "{}{:.1}%",
-            if change >= 0.0 { "+" } else { "" },
-            change
-        );
-        let emoji = if change >= 0.0 { "🟢" } else { "🔴" };
+        let change_str = format_change(change);
 
         let display_name = if name.len() > 12 {
             format!("{}..", &name[..10])
@@ -146,10 +143,10 @@ async fn fetch_top_crypto(client: &Client, limit: usize) -> Result<String, Strin
             "{:<4} {:<10} {} {:>12} {:>10} {:>14}\n",
             rank,
             format!("{} ({})", display_name, symbol),
-            emoji,
+            change_dot(change),
             format_price(price),
             change_str,
-            format_large_number(mcap),
+            format_large_number_usd(mcap),
         ));
     }
 
@@ -172,13 +169,12 @@ async fn fetch_major_indices(client: &Client) -> Result<String, String> {
         match fetch_yahoo_index(client, symbol).await {
             Ok((price, change_pct)) => {
                 any_success = true;
-                let emoji = if change_pct >= 0.0 { "🟢" } else { "🔴" };
                 output.push_str(&format!(
                     "  {} {:<12} {:>12} {:>8}\n",
-                    emoji,
+                    change_dot(change_pct),
                     name,
                     format_price(price),
-                    format!("{}{:.2}%", if change_pct >= 0.0 { "+" } else { "" }, change_pct),
+                    format_change(change_pct),
                 ));
             }
             Err(e) => {
@@ -229,31 +225,9 @@ async fn fetch_yahoo_index(client: &Client, symbol: &str) -> Result<(f64, f64), 
     Ok((price, change_pct))
 }
 
-fn format_price(price: f64) -> String {
-    if price >= 1.0 {
-        format!("${:.2}", price)
-    } else if price >= 0.01 {
-        format!("${:.4}", price)
-    } else {
-        format!("${:.6}", price)
-    }
-}
-
-fn format_large_number(n: f64) -> String {
-    if n >= 1_000_000_000_000.0 {
-        format!("${:.2}T", n / 1_000_000_000_000.0)
-    } else if n >= 1_000_000_000.0 {
-        format!("${:.2}B", n / 1_000_000_000.0)
-    } else if n >= 1_000_000.0 {
-        format!("${:.2}M", n / 1_000_000.0)
-    } else {
-        format!("${:.0}", n)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::tools::format::*;
 
     #[test]
     fn test_format_price_large() {
@@ -272,8 +246,8 @@ mod tests {
 
     #[test]
     fn test_format_large_number() {
-        assert_eq!(format_large_number(1_700_000_000_000.0), "$1.70T");
-        assert_eq!(format_large_number(45_000_000_000.0), "$45.00B");
-        assert_eq!(format_large_number(500_000.0), "$500000");
+        assert_eq!(format_large_number_usd(1_700_000_000_000.0), "$1.70T");
+        assert_eq!(format_large_number_usd(45_000_000_000.0), "$45.00B");
+        assert_eq!(format_large_number_usd(500_000.0), "$500000");
     }
 }

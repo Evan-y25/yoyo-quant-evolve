@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::time::Duration;
 use yoagent::types::*;
 
+use super::format::{change_emoji, format_change, format_large_number_usd, format_price};
+
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
 const YAHOO_CHART_BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
 const USER_AGENT: &str = "yoyo-trading-agent/0.1";
@@ -149,21 +151,18 @@ async fn fetch_coingecko_price(client: &Client, coin_id: &str) -> Result<String,
     let market_cap = coin_data["usd_market_cap"].as_f64().unwrap_or(0.0);
     let volume_24h = coin_data["usd_24h_vol"].as_f64().unwrap_or(0.0);
 
-    let change_emoji = if change_24h >= 0.0 { "📈" } else { "📉" };
-
     Ok(format!(
         "{} {} (CoinGecko)\n\
-         Price: ${:.2}\n\
-         24h Change: {}{:.2}%\n\
-         Market Cap: ${}\n\
-         24h Volume: ${}",
-        change_emoji,
+         Price: {}\n\
+         24h Change: {}\n\
+         Market Cap: {}\n\
+         24h Volume: {}",
+        change_emoji(change_24h),
         coin_id,
-        price,
-        if change_24h >= 0.0 { "+" } else { "" },
-        change_24h,
-        format_large_number(market_cap),
-        format_large_number(volume_24h),
+        format_price(price),
+        format_change(change_24h),
+        format_large_number_usd(market_cap),
+        format_large_number_usd(volume_24h),
     ))
 }
 
@@ -209,38 +208,22 @@ async fn fetch_yahoo_price(client: &Client, symbol: &str) -> Result<String, Stri
         0.0
     };
     let change_abs = price - prev_close;
-    let change_emoji = if change >= 0.0 { "📈" } else { "📉" };
 
     Ok(format!(
         "{} {} — {} (Yahoo Finance)\n\
          Price: {} {:.2}\n\
-         Change: {}{:.2} ({}{:.2}%)\n\
+         Change: {}{:.2} ({})\n\
          Exchange: {}",
-        change_emoji,
+        change_emoji(change),
         symbol.to_uppercase(),
         name,
         currency,
         price,
         if change_abs >= 0.0 { "+" } else { "" },
         change_abs,
-        if change >= 0.0 { "+" } else { "" },
-        change,
+        format_change(change),
         exchange,
     ))
-}
-
-fn format_large_number(n: f64) -> String {
-    if n >= 1_000_000_000_000.0 {
-        format!("{:.2}T", n / 1_000_000_000_000.0)
-    } else if n >= 1_000_000_000.0 {
-        format!("{:.2}B", n / 1_000_000_000.0)
-    } else if n >= 1_000_000.0 {
-        format!("{:.2}M", n / 1_000_000.0)
-    } else if n >= 1_000.0 {
-        format!("{:.0}", n)
-    } else {
-        format!("{:.2}", n)
-    }
 }
 
 #[cfg(test)]
@@ -258,15 +241,6 @@ mod tests {
         assert!(!is_likely_stock_ticker("bitcoin"));
         assert!(!is_likely_stock_ticker("ethereum"));
         assert!(!is_likely_stock_ticker("solana"));
-    }
-
-    #[test]
-    fn test_format_large_number() {
-        assert_eq!(format_large_number(1_500_000_000_000.0), "1.50T");
-        assert_eq!(format_large_number(45_000_000_000.0), "45.00B");
-        assert_eq!(format_large_number(1_200_000.0), "1.20M");
-        assert_eq!(format_large_number(50_000.0), "50000");
-        assert_eq!(format_large_number(42.5), "42.50");
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! from CoinGecko (crypto) and Yahoo Finance (stocks).
 
 pub mod crypto;
+pub mod format;
 pub mod market_overview;
 pub mod search_symbol;
 
