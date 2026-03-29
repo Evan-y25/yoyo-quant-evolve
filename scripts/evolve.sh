@@ -13,6 +13,28 @@
 
 set -euo pipefail
 
+# macOS doesn't have `timeout`; use gtimeout from coreutils or a shell fallback
+if command -v timeout &>/dev/null; then
+    TIMEOUT_CMD="timeout"
+elif command -v gtimeout &>/dev/null; then
+    TIMEOUT_CMD="gtimeout"
+else
+    # Pure-bash fallback: run command with a background watchdog
+    timeout_fallback() {
+        local secs=$1; shift
+        "$@" &
+        local pid=$!
+        ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
+        local watcher=$!
+        wait "$pid" 2>/dev/null
+        local ret=$?
+        kill "$watcher" 2>/dev/null
+        wait "$watcher" 2>/dev/null
+        return $ret
+    }
+    TIMEOUT_CMD="timeout_fallback"
+fi
+
 REPO="${REPO:-Evan-y25/yoyo-quant-evolve}"
 MODEL="${MODEL:-claude-opus-4-6}"
 PROVIDER="${PROVIDER:-anthropic}"
@@ -59,7 +81,7 @@ RECENT_JOURNAL=$(head -200 JOURNAL.md 2>/dev/null || echo "No journal yet.")
 echo "→ Starting evolution session..."
 echo ""
 
-timeout "$TIMEOUT" cargo run -- \
+$TIMEOUT_CMD "$TIMEOUT" cargo run -- \
     --provider "$PROVIDER" \
     --model "$MODEL" \
     --skills ./skills \
@@ -97,9 +119,12 @@ Make as many improvements as you can this session. Prioritize:
 
 === PHASE 4: Implement ===
 
+CRITICAL: You MUST modify Rust source code in src/. Do NOT just write documentation or markdown files.
+Focus on adding or improving actual functionality — new tools, better error handling, new commands, etc.
+
 For each improvement, follow the evolve skill rules:
 - Write a test first if possible
-- Use edit_file for surgical changes
+- Use edit_file for surgical changes to src/*.rs files
 - Run cargo build && cargo test after changes
 - If build fails, try to fix it. If you can't, revert with: bash git checkout -- src/
 - After each successful change, commit: git add -A && git commit -m "Round $ROUND: <short description>"
