@@ -15,7 +15,7 @@
 
 mod proxy_provider;
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use yoagent::agent::Agent;
 use yoagent::provider::{AnthropicProvider, ModelConfig, OpenAiCompat, OpenAiCompatProvider};
 use yoagent::skills::SkillSet;
@@ -117,6 +117,72 @@ async fn main() {
     );
 
     let stdin = io::stdin();
+    let is_pipe = !atty::is(atty::Stream::Stdin);
+
+    // When stdin is a pipe (e.g. from evolve.sh), read ALL input as one prompt.
+    // When interactive (TTY), read line by line as a REPL.
+    if is_pipe {
+        let mut full_input = String::new();
+        stdin.lock().read_to_string(&mut full_input).ok();
+        let input = full_input.trim();
+        if !input.is_empty() {
+            println!("{DIM}  (piped input: {} chars){RESET}", input.len());
+            let mut rx = agent.prompt(input).await;
+            let mut last_usage = Usage::default();
+            let mut in_text = false;
+
+            while let Some(event) = rx.recv().await {
+                match event {
+                    AgentEvent::ToolExecutionStart {
+                        tool_name, args, ..
+                    } => {
+                        if in_text {
+                            println!();
+                            in_text = false;
+                        }
+                        let summary = format_tool_summary(&tool_name, &args);
+                        print!("{YELLOW}  ▶ {summary}{RESET}");
+                        io::stdout().flush().ok();
+                    }
+                    AgentEvent::ToolExecutionEnd { is_error, .. } => {
+                        if is_error {
+                            println!(" {RED}✗{RESET}");
+                        } else {
+                            println!(" {GREEN}✓{RESET}");
+                        }
+                    }
+                    AgentEvent::MessageUpdate {
+                        delta: StreamDelta::Text { delta },
+                        ..
+                    } => {
+                        if !in_text {
+                            println!();
+                            in_text = true;
+                        }
+                        print!("{}", delta);
+                        io::stdout().flush().ok();
+                    }
+                    AgentEvent::AgentEnd { messages } => {
+                        for msg in messages.iter().rev() {
+                            if let AgentMessage::Llm(Message::Assistant { usage, .. }) = msg {
+                                last_usage = usage.clone();
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if in_text {
+                println!();
+            }
+            print_usage(&last_usage);
+        }
+        println!("\n{DIM}  done{RESET}\n");
+        return;
+    }
+
     let mut lines = stdin.lock().lines();
 
     loop {
@@ -174,36 +240,7 @@ async fn main() {
                         println!();
                         in_text = false;
                     }
-                    let summary = match tool_name.as_str() {
-                        "bash" => {
-                            let cmd = args
-                                .get("command")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("...");
-                            format!("$ {}", truncate(cmd, 80))
-                        }
-                        "read_file" => {
-                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
-                            format!("read {}", path)
-                        }
-                        "write_file" => {
-                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
-                            format!("write {}", path)
-                        }
-                        "edit_file" => {
-                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
-                            format!("edit {}", path)
-                        }
-                        "list_files" => {
-                            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-                            format!("ls {}", path)
-                        }
-                        "search" => {
-                            let pat = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
-                            format!("search '{}'", truncate(pat, 60))
-                        }
-                        _ => tool_name.clone(),
-                    };
+                    let summary = format_tool_summary(&tool_name, &args);
                     print!("{YELLOW}  ▶ {summary}{RESET}");
                     io::stdout().flush().ok();
                 }
@@ -304,6 +341,39 @@ fn build_agent(
                 .with_skills(skills.clone())
                 .with_tools(default_tools())
         }
+    }
+}
+
+fn format_tool_summary(tool_name: &str, args: &serde_json::Value) -> String {
+    match tool_name {
+        "bash" => {
+            let cmd = args
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("...");
+            format!("$ {}", truncate(cmd, 80))
+        }
+        "read_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("read {}", path)
+        }
+        "write_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("write {}", path)
+        }
+        "edit_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("edit {}", path)
+        }
+        "list_files" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            format!("ls {}", path)
+        }
+        "search" => {
+            let pat = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("search '{}'", truncate(pat, 60))
+        }
+        _ => tool_name.to_string(),
     }
 }
 

@@ -13,26 +13,13 @@
 
 set -euo pipefail
 
-# macOS doesn't have `timeout`; use gtimeout from coreutils or a shell fallback
+# macOS doesn't have `timeout`; use gtimeout from coreutils or skip
 if command -v timeout &>/dev/null; then
     TIMEOUT_CMD="timeout"
 elif command -v gtimeout &>/dev/null; then
     TIMEOUT_CMD="gtimeout"
 else
-    # Pure-bash fallback: run command with a background watchdog
-    timeout_fallback() {
-        local secs=$1; shift
-        "$@" &
-        local pid=$!
-        ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
-        local watcher=$!
-        wait "$pid" 2>/dev/null
-        local ret=$?
-        kill "$watcher" 2>/dev/null
-        wait "$watcher" 2>/dev/null
-        return $ret
-    }
-    TIMEOUT_CMD="timeout_fallback"
+    TIMEOUT_CMD=""
 fi
 
 REPO="${REPO:-Evan-y25/yoyo-quant-evolve}"
@@ -81,11 +68,9 @@ RECENT_JOURNAL=$(head -200 JOURNAL.md 2>/dev/null || echo "No journal yet.")
 echo "→ Starting evolution session..."
 echo ""
 
-$TIMEOUT_CMD "$TIMEOUT" cargo run -- \
-    --provider "$PROVIDER" \
-    --model "$MODEL" \
-    --skills ./skills \
-    <<PROMPT || true
+# Write prompt to a temp file so stdin piping works reliably on all platforms
+PROMPT_FILE=$(mktemp /tmp/evolve_prompt.XXXXXX)
+cat > "$PROMPT_FILE" <<PROMPT_END
 This is Round $ROUND ($DATE).
 
 Read these files in this order:
@@ -164,7 +149,23 @@ status: fixed|partial|wontfix
 comment: [your 2-3 sentence response to the person]
 
 Now begin. Read IDENTITY.md first.
-PROMPT
+PROMPT_END
+
+if [ -n "$TIMEOUT_CMD" ]; then
+    $TIMEOUT_CMD "$TIMEOUT" cargo run -- \
+        --provider "$PROVIDER" \
+        --model "$MODEL" \
+        --skills ./skills \
+        < "$PROMPT_FILE" || true
+else
+    cargo run -- \
+        --provider "$PROVIDER" \
+        --model "$MODEL" \
+        --skills ./skills \
+        < "$PROMPT_FILE" || true
+fi
+
+rm -f "$PROMPT_FILE"
 
 echo ""
 echo "→ Session complete. Checking results..."
