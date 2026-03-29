@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A self-evolving **trading agent** CLI built on [yoagent](https://github.com/yologdev/yoagent). The agent lives primarily in `src/main.rs` (Rust) and evolves daily via a GitHub Actions cron job (`scripts/evolve.sh`). Each session, the agent reads its own source, picks one improvement toward becoming a better trading assistant, implements it, and commits — if tests pass.
+A self-evolving **trading agent** CLI built on [yoagent](https://github.com/yologdev/yoagent). The agent lives primarily in `src/main.rs` (Rust) and evolves every 2 hours via a GitHub Actions cron job (`scripts/evolve.sh`). Each round, the agent reads its own source, picks one improvement toward becoming a better trading assistant, implements it, and commits — if tests pass.
 
 The agent's mission is to support **US stocks** and **major cryptocurrencies** (BTC, ETH, etc.) through conversational market data retrieval, analysis, trading advice, and eventually trade execution.
 
@@ -39,17 +39,23 @@ ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
 
 **Evolution loop** (`scripts/evolve.sh`): Verifies build → fetches GitHub issues (via `gh` CLI + `scripts/format_issues.py`) → pipes a structured prompt into the agent → verifies build after changes → commits or reverts → posts issue responses → pushes.
 
-**Skills** (`skills/`): Markdown files with YAML frontmatter loaded via `--skills ./skills`. Skills define the agent's daily workflow:
+**Skills** (`skills/`): Markdown files with YAML frontmatter loaded via `--skills ./skills`. Skills define the agent's workflow:
 - `self-assess` — read own code, try tasks, find bugs/gaps in trading capabilities
 - `evolve` — safely modify source, test, revert on failure
 - `communicate` — write journal entries and issue responses
+- `remember` — maintain long-term memory about users, markets, and conversations
+- `reflect` — periodic deep introspection on growth, biases, and direction
+- `trade-journal` — log every trade with reasoning, outcome, and lessons learned
 
 **State files** (read/written by the agent during evolution):
 - `IDENTITY.md` — the agent's constitution and rules (DO NOT MODIFY)
-- `JOURNAL.md` — chronological log of daily sessions (append at top, never delete)
+- `JOURNAL.md` — chronological log of sessions (append at top, never delete)
 - `ROADMAP.md` — leveled curriculum: market data → analysis → advice → execution
 - `LEARNINGS.md` — cached knowledge about APIs, trading concepts, implementation patterns
-- `DAY_COUNT` — integer tracking current evolution day
+- `MEMORY.md` — long-term memory: user profiles, market intuitions, conversation highlights, growth milestones
+- `TRADES.md` — trade journal: every trade with reasoning, outcome, confidence, lessons, and strategy performance
+- `REFLECTIONS.md` — deep introspection every 10 rounds: growth, biases, blind spots, north star
+- `ROUND_COUNT` — integer tracking current evolution round
 - `ISSUES_TODAY.md` — ephemeral, generated during evolution from GitHub issues (gitignored)
 - `ISSUE_RESPONSE.md` — ephemeral, agent writes this to respond to issues (gitignored)
 
@@ -60,7 +66,7 @@ These are enforced by the `evolve` skill and `evolve.sh`:
 - Every code change must pass `cargo build && cargo test`
 - If build fails after changes, revert with `git checkout -- src/`
 - Never delete existing tests
-- One improvement per evolution session — small, focused changes only
+- One improvement per evolution round — small, focused changes only
 - Write tests before adding features
 - Never execute real trades without explicit user confirmation
 - Always include risk disclaimers in trading-related output

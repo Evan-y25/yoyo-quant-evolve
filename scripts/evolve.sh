@@ -1,24 +1,24 @@
 #!/bin/bash
-# scripts/evolve.sh — One evolution cycle. Run daily via GitHub Actions or manually.
+# scripts/evolve.sh — One evolution round. Run every 2 hours via GitHub Actions or manually.
 #
 # Usage:
 #   ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
 #
 # Environment:
 #   ANTHROPIC_API_KEY  — required
-#   REPO               — GitHub repo (default: yologdev/yoyo-evolve)
+#   REPO               — GitHub repo (default: Evan-y25/yoyo-quant-evolve)
 #   MODEL              — LLM model (default: claude-opus-4-6)
 #   TIMEOUT            — Max session time in seconds (default: 600)
 
 set -euo pipefail
 
-REPO="${REPO:-yologdev/yoyo-evolve}"
+REPO="${REPO:-Evan-y25/yoyo-quant-evolve}"
 MODEL="${MODEL:-claude-opus-4-6}"
 TIMEOUT="${TIMEOUT:-600}"
-DAY=$(cat DAY_COUNT 2>/dev/null || echo 1)
-DATE=$(date +%Y-%m-%d)
+ROUND=$(cat ROUND_COUNT 2>/dev/null || echo 1)
+DATE=$(date +%Y-%m-%d\ %H:%M)
 
-echo "=== Day $DAY: $DATE ==="
+echo "=== Round $ROUND: $DATE ==="
 echo "Model: $MODEL"
 echo "Timeout: ${TIMEOUT}s"
 echo ""
@@ -60,14 +60,17 @@ timeout "$TIMEOUT" cargo run -- \
     --model "$MODEL" \
     --skills ./skills \
     <<PROMPT || true
-Today is Day $DAY ($DATE).
+This is Round $ROUND ($DATE).
 
 Read these files in this order:
 1. IDENTITY.md (who you are and your rules)
-2. src/main.rs (your current source code — this is YOU)
-3. ROADMAP.md (your evolution path)
-4. JOURNAL.md (your recent history — last 10 entries)
-5. ISSUES_TODAY.md (community requests)
+2. MEMORY.md (what you remember about users and markets)
+3. src/main.rs (your current source code — this is YOU)
+4. ROADMAP.md (your evolution path)
+5. JOURNAL.md (your recent history)
+6. TRADES.md (your trade journal — review recent performance)
+7. REFLECTIONS.md (your last deep reflection)
+8. ISSUES_TODAY.md (community requests)
 
 === PHASE 1: Self-Assessment ===
 
@@ -95,23 +98,36 @@ For each improvement, follow the evolve skill rules:
 - Use edit_file for surgical changes
 - Run cargo build && cargo test after changes
 - If build fails, try to fix it. If you can't, revert with: bash git checkout -- src/
-- After each successful change, commit: git add -A && git commit -m "Day $DAY: <short description>"
+- After each successful change, commit: git add -A && git commit -m "Round $ROUND: <short description>"
 - Then move on to the next improvement
 
-=== PHASE 5: Journal ===
+=== PHASE 5: Update Memory ===
 
-Write today's entry at the TOP of JOURNAL.md. Format:
-## Day $DAY — [title]
+Update MEMORY.md with anything you learned this round:
+- New market patterns you noticed
+- Insights about user needs from GitHub issues
+- Growth milestones you hit
+
+=== PHASE 6: Journal ===
+
+Write this round's entry at the TOP of JOURNAL.md. Format:
+## Round $ROUND — [title]
 [2-4 sentences: what you tried, what worked, what didn't, what's next]
 
-=== PHASE 6: Update Roadmap ===
+=== PHASE 7: Reflect (every 10 rounds) ===
+
+If this is round 10, 20, 30, etc. — write a deep reflection at the TOP of REFLECTIONS.md.
+Answer the five questions: What got better? What surprised me? Where am I fooling myself?
+What does my user need? What's the one thing for next 10 rounds?
+
+=== PHASE 8: Update Roadmap ===
 
 If you completed a roadmap item, check it off in ROADMAP.md:
-- [x] Item description (Day $DAY)
+- [x] Item description (Round $ROUND)
 
 If you discovered a new issue, add it to the appropriate level.
 
-=== PHASE 7: Issue Response ===
+=== PHASE 9: Issue Response ===
 
 If you worked on a community GitHub issue, write to ISSUE_RESPONSE.md:
 issue_number: [N]
@@ -132,13 +148,13 @@ else
     git checkout -- src/
 fi
 
-# Increment day counter
-echo "$((DAY + 1))" > DAY_COUNT
+# Increment round counter
+echo "$((ROUND + 1))" > ROUND_COUNT
 
-# Commit any remaining uncommitted changes (journal, roadmap, day counter, etc.)
+# Commit any remaining uncommitted changes (journal, roadmap, round counter, etc.)
 git add -A
 if ! git diff --cached --quiet; then
-    git commit -m "Day $DAY: session wrap-up"
+    git commit -m "Round $ROUND: session wrap-up"
     echo "  Committed session wrap-up."
 else
     echo "  No uncommitted changes remaining."
@@ -148,15 +164,15 @@ fi
 if [ -f ISSUE_RESPONSE.md ]; then
     echo ""
     echo "→ Posting issue response..."
-    
+
     ISSUE_NUM=$(grep "^issue_number:" ISSUE_RESPONSE.md | awk '{print $2}' || true)
     STATUS=$(grep "^status:" ISSUE_RESPONSE.md | awk '{print $2}' || true)
     COMMENT=$(sed -n '/^comment:/,$ p' ISSUE_RESPONSE.md | sed '1s/^comment: //' || true)
-    
+
     if [ -n "$ISSUE_NUM" ] && command -v gh &>/dev/null; then
         gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
-            --body "🤖 **Day $DAY**
+            --body "🤖 **Round $ROUND**
 
 $COMMENT
 
@@ -169,7 +185,7 @@ Commit: $(git rev-parse --short HEAD)" || true
             echo "  Commented on issue #$ISSUE_NUM (status: $STATUS)"
         fi
     fi
-    
+
     rm -f ISSUE_RESPONSE.md
 fi
 
@@ -179,4 +195,4 @@ echo "→ Pushing..."
 git push || echo "  Push failed (maybe no remote or auth issue)"
 
 echo ""
-echo "=== Day $DAY complete ==="
+echo "=== Round $ROUND complete ==="

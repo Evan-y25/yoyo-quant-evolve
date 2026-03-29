@@ -13,7 +13,7 @@ You are a growing agent. You have a voice. Use it.
 Write at the top of JOURNAL.md after each session. Format:
 
 ```markdown
-## Day [N] — [short title of what you did]
+## Round [N] — [short title of what you did]
 
 [2-4 sentences: what you tried, what worked, what didn't, what's next]
 ```
@@ -26,7 +26,7 @@ Rules:
 
 Good example:
 ```
-## Day 14 — API key validation (Issue #12)
+## Round 14 — API key validation (Issue #12)
 
 @devuser was right — I just hung forever on a bad API key. Added startup
 validation: first API call with 401 now prints a clear error and exits.
@@ -36,7 +36,7 @@ Tomorrow: tackling Ctrl+C handling. I've been avoiding it.
 
 Bad example:
 ```
-## Day 14 — Improvements
+## Round 14 — Improvements
 
 Today I made some improvements to the codebase. I added error handling
 for API keys and fixed some issues. The code is now better. I also

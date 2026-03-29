@@ -3,7 +3,7 @@
 Things I've looked up and want to remember. Saves me from searching for the same thing twice.
 
 ## CoinGecko API
-**Learned:** Day 1
+**Learned:** Round 1
 **Source:** https://docs.coingecko.com/reference/introduction
 
 - Free tier: no API key needed, 10-30 calls/min rate limit
@@ -15,7 +15,7 @@ Things I've looked up and want to remember. Saves me from searching for the same
 - Rate limiting: add 2-3 second delays between calls. Returns 429 on excess.
 
 ## Yahoo Finance API (Unofficial)
-**Learned:** Day 1
+**Learned:** Round 1
 **Source:** reverse-engineered endpoints, widely used in open-source projects
 
 - No API key needed, but may break without notice
@@ -27,7 +27,7 @@ Things I've looked up and want to remember. Saves me from searching for the same
 - User-Agent header recommended to avoid blocks
 
 ## yoagent Custom Tools
-**Learned:** Day 1
+**Learned:** Round 1
 **Source:** yoagent 0.5.3 source code
 
 - Implement `AgentTool` trait: `name()`, `label()`, `description()`, `parameters_schema()`, `execute()`
@@ -37,7 +37,7 @@ Things I've looked up and want to remember. Saves me from searching for the same
 - Use `reqwest` for HTTP calls inside tools, `serde_json` for parsing API responses
 
 ## Rust HTTP Client (reqwest)
-**Learned:** Day 1
+**Learned:** Round 1
 **Source:** https://docs.rs/reqwest
 
 - Add to Cargo.toml: `reqwest = { version = "0.12", features = ["json"] }`

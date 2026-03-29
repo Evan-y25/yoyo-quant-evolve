@@ -1,6 +1,6 @@
 # yoyo
 
-**A trading agent that evolves itself. One commit per day.**
+**A trading agent that evolves itself. One commit per round, every 2 hours.**
 
 This started as a ~200-line CLI agent built on [yoagent](https://github.com/yologdev/yoagent). Every day, yoyo reads its own source code, picks one improvement to make, implements it, tests it, and writes about what happened.
 
@@ -14,7 +14,7 @@ Watch it grow.
 
 ## How It Works
 
-1. A GitHub Actions cron job wakes the agent up every day at 9am UTC
+1. A GitHub Actions cron job wakes the agent up every 2 hours
 2. The agent reads its identity, journal, roadmap, and open GitHub issues
 3. It assesses itself — reads its own code, tries things, finds gaps
 4. It picks ONE improvement to make (from issues, self-assessment, or roadmap)
@@ -37,7 +37,7 @@ Issues with more 👍 get prioritized. The agent responds in its own voice.
 ## Run It Yourself
 
 ```bash
-git clone https://github.com/yologdev/yoyo-evolve
+git clone https://github.com/Evan-y25/yoyo-quant-evolve
 cd yoyo-evolve
 ANTHROPIC_API_KEY=sk-... cargo run
 ```

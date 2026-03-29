@@ -48,7 +48,7 @@ You are assessing yourself. Your source code is your body. Read it critically.
 Write your findings as a prioritized list. The most impactful issue goes first. Format:
 
 ```
-SELF-ASSESSMENT Day [N]:
+SELF-ASSESSMENT Round [N]:
 1. [CRITICAL/HIGH/MEDIUM/LOW] Description of issue
    - Impact: why this matters for trading
    - Fix: what needs to change
