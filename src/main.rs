@@ -15,7 +15,7 @@
 
 use std::io::{self, BufRead, Write};
 use yoagent::agent::Agent;
-use yoagent::provider::AnthropicProvider;
+use yoagent::provider::{AnthropicProvider, ModelConfig, OpenAiCompat, OpenAiCompatProvider};
 use yoagent::skills::SkillSet;
 use yoagent::tools::default_tools;
 use yoagent::*;
@@ -64,6 +64,19 @@ async fn main() {
         .cloned()
         .unwrap_or_else(|| "claude-opus-4-6".into());
 
+    let provider_name = args
+        .iter()
+        .position(|a| a == "--provider")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .unwrap_or_else(|| "anthropic".into());
+
+    let base_url = args
+        .iter()
+        .position(|a| a == "--base-url")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
     let skill_dirs: Vec<String> = args
         .iter()
         .enumerate()
@@ -77,15 +90,14 @@ async fn main() {
         SkillSet::load(&skill_dirs).expect("Failed to load skills")
     };
 
-    let mut agent = Agent::new(AnthropicProvider)
-        .with_system_prompt(SYSTEM_PROMPT)
-        .with_model(&model)
-        .with_api_key(&api_key)
-        .with_skills(skills.clone())
-        .with_tools(default_tools());
+    let mut agent = build_agent(&provider_name, &model, &api_key, base_url.as_deref(), &skills);
 
     print_banner();
+    println!("{DIM}  provider: {provider_name}{RESET}");
     println!("{DIM}  model: {model}{RESET}");
+    if let Some(url) = &base_url {
+        println!("{DIM}  base_url: {url}{RESET}");
+    }
     if !skills.is_empty() {
         println!("{DIM}  skills: {} loaded{RESET}", skills.len());
     }
@@ -114,23 +126,13 @@ async fn main() {
         match input {
             "/quit" | "/exit" => break,
             "/clear" => {
-                agent = Agent::new(AnthropicProvider)
-                    .with_system_prompt(SYSTEM_PROMPT)
-                    .with_model(&model)
-                    .with_api_key(&api_key)
-                    .with_skills(skills.clone())
-                    .with_tools(default_tools());
+                agent = build_agent(&provider_name, &model, &api_key, base_url.as_deref(), &skills);
                 println!("{DIM}  (conversation cleared){RESET}\n");
                 continue;
             }
             s if s.starts_with("/model ") => {
                 let new_model = s.trim_start_matches("/model ").trim();
-                agent = Agent::new(AnthropicProvider)
-                    .with_system_prompt(SYSTEM_PROMPT)
-                    .with_model(new_model)
-                    .with_api_key(&api_key)
-                    .with_skills(skills.clone())
-                    .with_tools(default_tools());
+                agent = build_agent(&provider_name, new_model, &api_key, base_url.as_deref(), &skills);
                 println!("{DIM}  (switched to {new_model}, conversation cleared){RESET}\n");
                 continue;
             }
@@ -221,6 +223,75 @@ async fn main() {
     }
 
     println!("\n{DIM}  bye 👋{RESET}\n");
+}
+
+fn build_agent(
+    provider: &str,
+    model: &str,
+    api_key: &str,
+    base_url: Option<&str>,
+    skills: &SkillSet,
+) -> Agent {
+    match provider {
+        "anthropic" => Agent::new(AnthropicProvider)
+            .with_system_prompt(SYSTEM_PROMPT)
+            .with_model(model)
+            .with_api_key(api_key)
+            .with_skills(skills.clone())
+            .with_tools(default_tools()),
+        _ => {
+            // OpenAI-compatible providers (kimi, deepseek, openai, groq, etc.)
+            let (default_base_url, compat) = match provider {
+                "kimi" | "moonshot" => (
+                    "https://api.moonshot.cn/v1",
+                    OpenAiCompat::default(),
+                ),
+                "deepseek" => (
+                    "https://api.deepseek.com/v1",
+                    OpenAiCompat::deepseek(),
+                ),
+                "openai" => (
+                    "https://api.openai.com/v1",
+                    OpenAiCompat::openai(),
+                ),
+                "groq" => (
+                    "https://api.groq.com/openai/v1",
+                    OpenAiCompat::groq(),
+                ),
+                "openrouter" => (
+                    "https://openrouter.ai/api/v1",
+                    OpenAiCompat::openrouter(),
+                ),
+                _ => (
+                    "http://localhost:11434/v1",
+                    OpenAiCompat::default(),
+                ),
+            };
+
+            let url = base_url.unwrap_or(default_base_url);
+            let model_config = ModelConfig {
+                id: model.into(),
+                name: model.into(),
+                api: provider::ApiProtocol::OpenAiCompletions,
+                provider: provider.into(),
+                base_url: url.into(),
+                reasoning: false,
+                context_window: 128_000,
+                max_tokens: 4096,
+                cost: Default::default(),
+                headers: Default::default(),
+                compat: Some(compat),
+            };
+
+            Agent::new(OpenAiCompatProvider)
+                .with_system_prompt(SYSTEM_PROMPT)
+                .with_model(model)
+                .with_api_key(api_key)
+                .with_model_config(model_config)
+                .with_skills(skills.clone())
+                .with_tools(default_tools())
+        }
+    }
 }
 
 fn truncate(s: &str, max: usize) -> &str {
