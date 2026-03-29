@@ -14,6 +14,7 @@
 //!   /model <name>   Switch model mid-session
 
 mod proxy_provider;
+mod tools;
 
 use std::io::{self, BufRead, Read, Write};
 use yoagent::agent::Agent;
@@ -33,15 +34,27 @@ const YELLOW: &str = "\x1b[33m";
 const CYAN: &str = "\x1b[36m";
 const RED: &str = "\x1b[31m";
 
-const SYSTEM_PROMPT: &str = r#"You are a coding assistant working in the user's terminal.
-You have access to the filesystem and shell. Be direct and concise.
-When the user asks you to do something, do it — don't just explain how.
-Use tools proactively: read files to understand context, run commands to verify your work.
-After making changes, run tests or verify the result when appropriate."#;
+const SYSTEM_PROMPT: &str = r#"You are yoyo, an AI trading companion for crypto and US stocks.
+
+You have real-time market data tools:
+- **get_price**: Fetch current price, 24h change, market cap for any crypto or stock
+- **search_symbol**: Find the right symbol/ID for any asset by name
+- **get_market_overview**: Quick snapshot of top crypto + major US indices
+
+You also have coding tools (bash, read_file, write_file, edit_file, search, list_files).
+
+**How to help:**
+- When someone asks about a price, USE the get_price tool — don't guess
+- When someone wants a market overview, USE get_market_overview
+- When someone mentions an asset you're not sure about, USE search_symbol to find it
+- Be conversational but data-driven. Show the numbers, then explain what they mean
+- Always remind users you're not a financial advisor and trading carries risk
+
+**Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— a coding agent growing up in public{RESET}");
-    println!("{DIM}  Type /quit to exit, /clear to reset{RESET}\n");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion{RESET}");
+    println!("{DIM}  Type /quit to exit, /clear to reset, /price <symbol> for quick quotes{RESET}\n");
 }
 
 fn print_usage(usage: &Usage) {
@@ -291,13 +304,17 @@ fn build_agent(
     base_url: Option<&str>,
     skills: &SkillSet,
 ) -> Agent {
+    // Combine default coding tools with custom trading tools
+    let mut all_tools = default_tools();
+    all_tools.extend(tools::trading_tools());
+
     match provider {
         "anthropic" => Agent::new(AnthropicProvider)
             .with_system_prompt(SYSTEM_PROMPT)
             .with_model(model)
             .with_api_key(api_key)
             .with_skills(skills.clone())
-            .with_tools(default_tools()),
+            .with_tools(all_tools),
         "apieasy" => {
             let url = base_url.unwrap_or("https://www.apieasy.ai");
             Agent::new(ProxyAnthropicProvider::new(url))
@@ -305,7 +322,7 @@ fn build_agent(
                 .with_model(model)
                 .with_api_key(api_key)
                 .with_skills(skills.clone())
-                .with_tools(default_tools())
+                .with_tools(all_tools)
         }
         _ => {
             // OpenAI-compatible providers (kimi, deepseek, openai, groq, etc.)
@@ -339,7 +356,7 @@ fn build_agent(
                 .with_api_key(api_key)
                 .with_model_config(model_config)
                 .with_skills(skills.clone())
-                .with_tools(default_tools())
+                .with_tools(all_tools)
         }
     }
 }
@@ -372,6 +389,18 @@ fn format_tool_summary(tool_name: &str, args: &serde_json::Value) -> String {
         "search" => {
             let pat = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
             format!("search '{}'", truncate(pat, 60))
+        }
+        // Trading tools
+        "get_price" => {
+            let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("📈 price {}", symbol)
+        }
+        "search_symbol" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("🔍 search '{}'", query)
+        }
+        "get_market_overview" => {
+            "🌍 market overview".to_string()
         }
         _ => tool_name.to_string(),
     }
