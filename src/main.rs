@@ -13,12 +13,16 @@
 //!   /clear          Clear conversation history
 //!   /model <name>   Switch model mid-session
 
+mod proxy_provider;
+
 use std::io::{self, BufRead, Write};
 use yoagent::agent::Agent;
 use yoagent::provider::{AnthropicProvider, ModelConfig, OpenAiCompat, OpenAiCompatProvider};
 use yoagent::skills::SkillSet;
 use yoagent::tools::default_tools;
 use yoagent::*;
+
+use proxy_provider::ProxyAnthropicProvider;
 
 // ANSI color helpers
 const RESET: &str = "\x1b[0m";
@@ -90,7 +94,13 @@ async fn main() {
         SkillSet::load(&skill_dirs).expect("Failed to load skills")
     };
 
-    let mut agent = build_agent(&provider_name, &model, &api_key, base_url.as_deref(), &skills);
+    let mut agent = build_agent(
+        &provider_name,
+        &model,
+        &api_key,
+        base_url.as_deref(),
+        &skills,
+    );
 
     print_banner();
     println!("{DIM}  provider: {provider_name}{RESET}");
@@ -126,13 +136,25 @@ async fn main() {
         match input {
             "/quit" | "/exit" => break,
             "/clear" => {
-                agent = build_agent(&provider_name, &model, &api_key, base_url.as_deref(), &skills);
+                agent = build_agent(
+                    &provider_name,
+                    &model,
+                    &api_key,
+                    base_url.as_deref(),
+                    &skills,
+                );
                 println!("{DIM}  (conversation cleared){RESET}\n");
                 continue;
             }
             s if s.starts_with("/model ") => {
                 let new_model = s.trim_start_matches("/model ").trim();
-                agent = build_agent(&provider_name, new_model, &api_key, base_url.as_deref(), &skills);
+                agent = build_agent(
+                    &provider_name,
+                    new_model,
+                    &api_key,
+                    base_url.as_deref(),
+                    &skills,
+                );
                 println!("{DIM}  (switched to {new_model}, conversation cleared){RESET}\n");
                 continue;
             }
@@ -239,33 +261,24 @@ fn build_agent(
             .with_api_key(api_key)
             .with_skills(skills.clone())
             .with_tools(default_tools()),
+        "apieasy" => {
+            let url = base_url.unwrap_or("https://www.apieasy.ai");
+            Agent::new(ProxyAnthropicProvider::new(url))
+                .with_system_prompt(SYSTEM_PROMPT)
+                .with_model(model)
+                .with_api_key(api_key)
+                .with_skills(skills.clone())
+                .with_tools(default_tools())
+        }
         _ => {
             // OpenAI-compatible providers (kimi, deepseek, openai, groq, etc.)
             let (default_base_url, compat) = match provider {
-                "kimi" | "moonshot" => (
-                    "https://api.moonshot.cn/v1",
-                    OpenAiCompat::default(),
-                ),
-                "deepseek" => (
-                    "https://api.deepseek.com/v1",
-                    OpenAiCompat::deepseek(),
-                ),
-                "openai" => (
-                    "https://api.openai.com/v1",
-                    OpenAiCompat::openai(),
-                ),
-                "groq" => (
-                    "https://api.groq.com/openai/v1",
-                    OpenAiCompat::groq(),
-                ),
-                "openrouter" => (
-                    "https://openrouter.ai/api/v1",
-                    OpenAiCompat::openrouter(),
-                ),
-                _ => (
-                    "http://localhost:11434/v1",
-                    OpenAiCompat::default(),
-                ),
+                "kimi" | "moonshot" => ("https://api.moonshot.cn/v1", OpenAiCompat::default()),
+                "deepseek" => ("https://api.deepseek.com/v1", OpenAiCompat::deepseek()),
+                "openai" => ("https://api.openai.com/v1", OpenAiCompat::openai()),
+                "groq" => ("https://api.groq.com/openai/v1", OpenAiCompat::groq()),
+                "openrouter" => ("https://openrouter.ai/api/v1", OpenAiCompat::openrouter()),
+                _ => ("http://localhost:11434/v1", OpenAiCompat::default()),
             };
 
             let url = base_url.unwrap_or(default_base_url);
