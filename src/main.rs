@@ -237,6 +237,57 @@ async fn main() {
                 println!("{DIM}  (switched to {new_model}, conversation cleared){RESET}\n");
                 continue;
             }
+            s if s.starts_with("/price ") => {
+                let symbol = s.trim_start_matches("/price ").trim();
+                if symbol.is_empty() {
+                    println!("{DIM}  Usage: /price bitcoin  or  /price AAPL{RESET}\n");
+                    continue;
+                }
+                println!("{DIM}  fetching {symbol}...{RESET}");
+                let tool = tools::GetPriceTool::new();
+                let params = serde_json::json!({"symbol": symbol});
+                let ctx = yoagent::types::ToolContext {
+                    tool_call_id: "direct".into(),
+                    tool_name: "get_price".into(),
+                    cancel: tokio_util::sync::CancellationToken::new(),
+                    on_update: None,
+                    on_progress: None,
+                };
+                match tool.execute(params, ctx).await {
+                    Ok(result) => {
+                        for c in &result.content {
+                            if let yoagent::types::Content::Text { text } = c {
+                                println!("\n{text}\n");
+                            }
+                        }
+                    }
+                    Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+                }
+                continue;
+            }
+            "/market" => {
+                println!("{DIM}  fetching market overview...{RESET}");
+                let tool = tools::GetMarketOverviewTool::new();
+                let params = serde_json::json!({});
+                let ctx = yoagent::types::ToolContext {
+                    tool_call_id: "direct".into(),
+                    tool_name: "get_market_overview".into(),
+                    cancel: tokio_util::sync::CancellationToken::new(),
+                    on_update: None,
+                    on_progress: None,
+                };
+                match tool.execute(params, ctx).await {
+                    Ok(result) => {
+                        for c in &result.content {
+                            if let yoagent::types::Content::Text { text } = c {
+                                println!("\n{text}\n");
+                            }
+                        }
+                    }
+                    Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+                }
+                continue;
+            }
             _ => {}
         }
 
