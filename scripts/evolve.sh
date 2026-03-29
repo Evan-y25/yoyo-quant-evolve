@@ -5,21 +5,24 @@
 #   ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
 #
 # Environment:
-#   ANTHROPIC_API_KEY  — required
+#   ANTHROPIC_API_KEY or API_KEY — required
 #   REPO               — GitHub repo (default: Evan-y25/yoyo-quant-evolve)
 #   MODEL              — LLM model (default: claude-opus-4-6)
+#   PROVIDER            — Provider name (default: anthropic, or apieasy)
 #   TIMEOUT            — Max session time in seconds (default: 600)
 
 set -euo pipefail
 
 REPO="${REPO:-Evan-y25/yoyo-quant-evolve}"
 MODEL="${MODEL:-claude-opus-4-6}"
+PROVIDER="${PROVIDER:-anthropic}"
 TIMEOUT="${TIMEOUT:-600}"
 ROUND=$(cat ROUND_COUNT 2>/dev/null || echo 1)
 DATE=$(date +%Y-%m-%d\ %H:%M)
 
 echo "=== Round $ROUND: $DATE ==="
 echo "Model: $MODEL"
+echo "Provider: $PROVIDER"
 echo "Timeout: ${TIMEOUT}s"
 echo ""
 
@@ -57,6 +60,7 @@ echo "→ Starting evolution session..."
 echo ""
 
 timeout "$TIMEOUT" cargo run -- \
+    --provider "$PROVIDER" \
     --model "$MODEL" \
     --skills ./skills \
     <<PROMPT || true
