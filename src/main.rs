@@ -54,7 +54,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 
 fn print_banner() {
     println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion{RESET}");
-    println!("{DIM}  Type /quit to exit, /clear to reset, /price <symbol> for quick quotes{RESET}\n");
+    println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
 fn print_usage(usage: &Usage) {
@@ -245,47 +245,41 @@ async fn main() {
                 }
                 println!("{DIM}  fetching {symbol}...{RESET}");
                 let tool = tools::GetPriceTool::new();
-                let params = serde_json::json!({"symbol": symbol});
-                let ctx = yoagent::types::ToolContext {
-                    tool_call_id: "direct".into(),
-                    tool_name: "get_price".into(),
-                    cancel: tokio_util::sync::CancellationToken::new(),
-                    on_update: None,
-                    on_progress: None,
-                };
-                match tool.execute(params, ctx).await {
-                    Ok(result) => {
-                        for c in &result.content {
-                            if let yoagent::types::Content::Text { text } = c {
-                                println!("\n{text}\n");
-                            }
-                        }
-                    }
-                    Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
-                }
+                execute_tool_direct(&tool, serde_json::json!({"symbol": symbol})).await;
                 continue;
             }
             "/market" => {
                 println!("{DIM}  fetching market overview...{RESET}");
                 let tool = tools::GetMarketOverviewTool::new();
-                let params = serde_json::json!({});
-                let ctx = yoagent::types::ToolContext {
-                    tool_call_id: "direct".into(),
-                    tool_name: "get_market_overview".into(),
-                    cancel: tokio_util::sync::CancellationToken::new(),
-                    on_update: None,
-                    on_progress: None,
-                };
-                match tool.execute(params, ctx).await {
-                    Ok(result) => {
-                        for c in &result.content {
-                            if let yoagent::types::Content::Text { text } = c {
-                                println!("\n{text}\n");
-                            }
-                        }
-                    }
-                    Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+                execute_tool_direct(&tool, serde_json::json!({})).await;
+                continue;
+            }
+            s if s.starts_with("/search ") => {
+                let query = s.trim_start_matches("/search ").trim();
+                if query.is_empty() {
+                    println!("{DIM}  Usage: /search bitcoin  or  /search apple{RESET}\n");
+                    continue;
                 }
+                println!("{DIM}  searching for '{query}'...{RESET}");
+                let tool = tools::SearchSymbolTool::new();
+                execute_tool_direct(&tool, serde_json::json!({"query": query})).await;
+                continue;
+            }
+            s if s.starts_with("/compare ") => {
+                let args: Vec<&str> = s.trim_start_matches("/compare ").split_whitespace().collect();
+                if args.len() < 2 {
+                    println!("{DIM}  Usage: /compare bitcoin ethereum  or  /compare AAPL MSFT{RESET}\n");
+                    continue;
+                }
+                let tool = tools::GetPriceTool::new();
+                for symbol in &args {
+                    println!("{DIM}  fetching {symbol}...{RESET}");
+                    execute_tool_direct(&tool, serde_json::json!({"symbol": *symbol})).await;
+                }
+                continue;
+            }
+            "/help" | "/?" => {
+                print_help();
                 continue;
             }
             _ => {}
@@ -346,6 +340,42 @@ async fn main() {
     }
 
     println!("\n{DIM}  bye 👋{RESET}\n");
+}
+
+/// Execute a tool directly and print its output. Used by slash commands.
+async fn execute_tool_direct(tool: &dyn yoagent::types::AgentTool, params: serde_json::Value) {
+    let ctx = yoagent::types::ToolContext {
+        tool_call_id: "direct".into(),
+        tool_name: tool.name().into(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        on_update: None,
+        on_progress: None,
+    };
+    match tool.execute(params, ctx).await {
+        Ok(result) => {
+            for c in &result.content {
+                if let yoagent::types::Content::Text { text } = c {
+                    println!("\n{text}\n");
+                }
+            }
+        }
+        Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+    }
+}
+
+fn print_help() {
+    println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("  {BOLD}/price{RESET} <symbol>    Quick price check (e.g. /price bitcoin, /price AAPL)");
+    println!("  {BOLD}/market{RESET}            Market overview — top crypto + US indices");
+    println!("  {BOLD}/search{RESET} <query>    Find a symbol by name or ticker");
+    println!("  {BOLD}/compare{RESET} <a> <b>   Compare two assets side by side");
+    println!("  {BOLD}/clear{RESET}             Clear conversation history");
+    println!("  {BOLD}/model{RESET} <name>      Switch to a different model");
+    println!("  {BOLD}/help{RESET}              Show this help");
+    println!("  {BOLD}/quit{RESET}              Exit yoyo");
+    println!();
+    println!("{DIM}  Or just type naturally: \"What's happening with ETH today?\"{RESET}\n");
 }
 
 fn build_agent(
