@@ -37,6 +37,12 @@ pub struct PaperTrade {
     pub exit_time: Option<String>,
     /// Realized P&L (None if still open)
     pub realized_pnl: Option<f64>,
+    /// Stop-loss price (auto-close if price hits this level)
+    #[serde(default)]
+    pub stop_loss: Option<f64>,
+    /// Take-profit price (auto-close if price hits this level)
+    #[serde(default)]
+    pub take_profit: Option<f64>,
 }
 
 impl PaperTrade {
@@ -126,6 +132,22 @@ impl Portfolio {
         reasoning: &str,
         confidence: u8,
     ) -> Result<u32, String> {
+        self.open_trade_with_levels(symbol, side, quantity, price, reasoning, confidence, None, None)
+    }
+
+    /// Open a new paper trade with optional stop-loss and take-profit.
+    /// Returns the trade ID on success.
+    pub fn open_trade_with_levels(
+        &mut self,
+        symbol: &str,
+        side: &str,
+        quantity: f64,
+        price: f64,
+        reasoning: &str,
+        confidence: u8,
+        stop_loss: Option<f64>,
+        take_profit: Option<f64>,
+    ) -> Result<u32, String> {
         if quantity <= 0.0 {
             return Err("Quantity must be positive".into());
         }
@@ -152,6 +174,42 @@ impl Portfolio {
             self.cash -= cost;
         }
 
+        // Validate stop-loss and take-profit
+        if let Some(sl) = stop_loss {
+            if sl <= 0.0 {
+                return Err("Stop-loss must be positive".into());
+            }
+            if side == "buy" && sl >= price {
+                return Err(format!(
+                    "Stop-loss (${:.2}) must be below entry price (${:.2}) for a buy",
+                    sl, price
+                ));
+            }
+            if side == "sell" && sl <= price {
+                return Err(format!(
+                    "Stop-loss (${:.2}) must be above entry price (${:.2}) for a short",
+                    sl, price
+                ));
+            }
+        }
+        if let Some(tp) = take_profit {
+            if tp <= 0.0 {
+                return Err("Take-profit must be positive".into());
+            }
+            if side == "buy" && tp <= price {
+                return Err(format!(
+                    "Take-profit (${:.2}) must be above entry price (${:.2}) for a buy",
+                    tp, price
+                ));
+            }
+            if side == "sell" && tp >= price {
+                return Err(format!(
+                    "Take-profit (${:.2}) must be below entry price (${:.2}) for a short",
+                    tp, price
+                ));
+            }
+        }
+
         let now = current_timestamp();
         let id = self.next_id;
         self.next_id += 1;
@@ -168,6 +226,8 @@ impl Portfolio {
             entry_time: now,
             exit_time: None,
             realized_pnl: None,
+            stop_loss,
+            take_profit,
         };
 
         self.trades.push(trade);
@@ -201,6 +261,48 @@ impl Portfolio {
         }
 
         Ok(pnl)
+    }
+
+    /// Check if any open trades should be closed based on stop-loss or take-profit.
+    /// Returns a list of (trade_id, trigger_price, trigger_type) for trades that should close.
+    pub fn check_stop_loss_take_profit(
+        &self,
+        price_map: &std::collections::HashMap<String, f64>,
+    ) -> Vec<(u32, f64, &'static str)> {
+        let mut triggered = Vec::new();
+
+        for trade in &self.trades {
+            if !trade.is_open() {
+                continue;
+            }
+            if let Some(&current_price) = price_map.get(&trade.symbol) {
+                // Check stop-loss
+                if let Some(sl) = trade.stop_loss {
+                    let triggered_sl = if trade.side == "buy" {
+                        current_price <= sl
+                    } else {
+                        current_price >= sl
+                    };
+                    if triggered_sl {
+                        triggered.push((trade.id, current_price, "stop-loss"));
+                        continue; // Don't check TP if SL triggered
+                    }
+                }
+                // Check take-profit
+                if let Some(tp) = trade.take_profit {
+                    let triggered_tp = if trade.side == "buy" {
+                        current_price >= tp
+                    } else {
+                        current_price <= tp
+                    };
+                    if triggered_tp {
+                        triggered.push((trade.id, current_price, "take-profit"));
+                    }
+                }
+            }
+        }
+
+        triggered
     }
 
     /// Get all open positions.
@@ -321,6 +423,17 @@ impl Portfolio {
                     trade.entry_price,
                     pnl_info,
                 ));
+                // Show SL/TP if set
+                let mut levels = Vec::new();
+                if let Some(sl) = trade.stop_loss {
+                    levels.push(format!("SL: ${:.2}", sl));
+                }
+                if let Some(tp) = trade.take_profit {
+                    levels.push(format!("TP: ${:.2}", tp));
+                }
+                if !levels.is_empty() {
+                    output.push_str(&format!("        🎯 {}\n", levels.join(" | ")));
+                }
                 if !trade.reasoning.is_empty() {
                     let reason = if trade.reasoning.len() > 60 {
                         format!("{}...", &trade.reasoning[..57])
@@ -401,6 +514,17 @@ impl Portfolio {
                     trade.entry_price,
                     trade.entry_time,
                 ));
+                // Show SL/TP if set
+                let mut levels = Vec::new();
+                if let Some(sl) = trade.stop_loss {
+                    levels.push(format!("SL: ${:.2}", sl));
+                }
+                if let Some(tp) = trade.take_profit {
+                    levels.push(format!("TP: ${:.2}", tp));
+                }
+                if !levels.is_empty() {
+                    output.push_str(&format!("        🎯 {}\n", levels.join(" | ")));
+                }
                 if !trade.reasoning.is_empty() {
                     let reason = if trade.reasoning.len() > 60 {
                         format!("{}...", &trade.reasoning[..57])
@@ -815,5 +939,134 @@ mod tests {
         let summary = p.summary_with_prices(&prices);
         // Should show negative unrealized P&L
         assert!(summary.contains("-$5,000") || summary.contains("-$5000"));
+    }
+
+    #[test]
+    fn test_open_trade_with_stop_loss() {
+        let mut p = Portfolio::new();
+        let id = p
+            .open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "SL test", 5, Some(85000.0), None)
+            .unwrap();
+        let trade = p.trades.iter().find(|t| t.id == id).unwrap();
+        assert_eq!(trade.stop_loss, Some(85000.0));
+        assert_eq!(trade.take_profit, None);
+    }
+
+    #[test]
+    fn test_open_trade_with_take_profit() {
+        let mut p = Portfolio::new();
+        let id = p
+            .open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "TP test", 5, None, Some(100000.0))
+            .unwrap();
+        let trade = p.trades.iter().find(|t| t.id == id).unwrap();
+        assert_eq!(trade.stop_loss, None);
+        assert_eq!(trade.take_profit, Some(100000.0));
+    }
+
+    #[test]
+    fn test_open_trade_with_both_sl_tp() {
+        let mut p = Portfolio::new();
+        let id = p
+            .open_trade_with_levels("AAPL", "buy", 10.0, 200.0, "Both", 7, Some(190.0), Some(220.0))
+            .unwrap();
+        let trade = p.trades.iter().find(|t| t.id == id).unwrap();
+        assert_eq!(trade.stop_loss, Some(190.0));
+        assert_eq!(trade.take_profit, Some(220.0));
+    }
+
+    #[test]
+    fn test_stop_loss_validation_buy() {
+        let mut p = Portfolio::new();
+        // SL above entry for a buy should fail
+        let result = p.open_trade_with_levels("AAPL", "buy", 10.0, 200.0, "", 5, Some(210.0), None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("below entry"));
+    }
+
+    #[test]
+    fn test_stop_loss_validation_sell() {
+        let mut p = Portfolio::new();
+        // SL below entry for a short should fail
+        let result = p.open_trade_with_levels("AAPL", "sell", 10.0, 200.0, "", 5, Some(190.0), None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("above entry"));
+    }
+
+    #[test]
+    fn test_take_profit_validation_buy() {
+        let mut p = Portfolio::new();
+        // TP below entry for a buy should fail
+        let result = p.open_trade_with_levels("AAPL", "buy", 10.0, 200.0, "", 5, None, Some(190.0));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("above entry"));
+    }
+
+    #[test]
+    fn test_check_stop_loss_triggered() {
+        let mut p = Portfolio::new();
+        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 84000.0); // Below SL
+
+        let triggered = p.check_stop_loss_take_profit(&prices);
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0].2, "stop-loss");
+    }
+
+    #[test]
+    fn test_check_take_profit_triggered() {
+        let mut p = Portfolio::new();
+        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 101000.0); // Above TP
+
+        let triggered = p.check_stop_loss_take_profit(&prices);
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0].2, "take-profit");
+    }
+
+    #[test]
+    fn test_check_no_trigger() {
+        let mut p = Portfolio::new();
+        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 92000.0); // Between SL and TP
+
+        let triggered = p.check_stop_loss_take_profit(&prices);
+        assert!(triggered.is_empty());
+    }
+
+    #[test]
+    fn test_check_short_stop_loss() {
+        let mut p = Portfolio::new();
+        p.open_trade_with_levels("bitcoin", "sell", 0.5, 90000.0, "", 5, Some(95000.0), Some(80000.0))
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 96000.0); // Above SL for short
+
+        let triggered = p.check_stop_loss_take_profit(&prices);
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0].2, "stop-loss");
+    }
+
+    #[test]
+    fn test_check_short_take_profit() {
+        let mut p = Portfolio::new();
+        p.open_trade_with_levels("bitcoin", "sell", 0.5, 90000.0, "", 5, Some(95000.0), Some(80000.0))
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 79000.0); // Below TP for short
+
+        let triggered = p.check_stop_loss_take_profit(&prices);
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0].2, "take-profit");
     }
 }

@@ -804,7 +804,40 @@ async fn handle_portfolio_command(input: &str) {
                     .filter_map(|(sym, r)| r.ok().map(|(price, _)| (sym, price)))
                     .collect();
 
-                println!("\n{}", portfolio.summary_with_prices(&price_map));
+                // Check for stop-loss / take-profit triggers
+                let triggered = portfolio.check_stop_loss_take_profit(&price_map);
+                if !triggered.is_empty() {
+                    let mut portfolio_mut = portfolio.clone();
+                    for (trade_id, trigger_price, trigger_type) in &triggered {
+                        match portfolio_mut.close_trade(*trade_id, *trigger_price) {
+                            Ok(pnl) => {
+                                let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
+                                let pnl_sign = if pnl >= 0.0 { "+" } else { "" };
+                                println!(
+                                    "{YELLOW}  ⚡ {trigger_type} triggered for trade #{trade_id}!{RESET}"
+                                );
+                                println!(
+                                    "  {pnl_emoji} Closed at ${trigger_price:.2} — P&L: {pnl_sign}${pnl:.2}"
+                                );
+                                // Log to TRADES.md
+                                if let Some(trade) = portfolio_mut.trades.iter().find(|t| t.id == *trade_id) {
+                                    let _ = tools::portfolio::log_trade_to_journal(trade, "close");
+                                }
+                            }
+                            Err(e) => {
+                                println!("{RED}  Error auto-closing trade #{trade_id}: {e}{RESET}");
+                            }
+                        }
+                    }
+                    if let Err(e) = portfolio_mut.save() {
+                        println!("{RED}  Error saving portfolio: {e}{RESET}");
+                    }
+                    println!();
+                    // Use the updated portfolio for the summary
+                    println!("{}", portfolio_mut.summary_with_prices(&price_map));
+                } else {
+                    println!("\n{}", portfolio.summary_with_prices(&price_map));
+                }
             }
         }
         Some(unknown) => {
