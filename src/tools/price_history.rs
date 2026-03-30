@@ -218,7 +218,8 @@ async fn fetch_coingecko_history(
     output.push_str(&sparkline(&prices_only, 50));
 
     // Technical indicators (only if we have enough data)
-    output.push_str(&format_indicators(&prices_only, last_price));
+    let vol_ref = if volume_points.is_empty() { None } else { Some(volume_points.as_slice()) };
+    output.push_str(&format_indicators(&prices_only, last_price, vol_ref));
 
     Ok(output)
 }
@@ -315,14 +316,16 @@ async fn fetch_yahoo_history(
     output.push_str(&sparkline(&closes, 50));
 
     // Technical indicators
-    output.push_str(&format_indicators(&closes, last_close));
+    // Technical indicators
+    let vol_ref = if volumes.is_empty() { None } else { Some(volumes.as_slice()) };
+    output.push_str(&format_indicators(&closes, last_close, vol_ref));
 
     Ok(output)
 }
 
 /// Format technical indicators for display.
 /// Only shows indicators when there's enough data.
-fn format_indicators(prices: &[f64], current_price: f64) -> String {
+fn format_indicators(prices: &[f64], current_price: f64, volumes: Option<&[f64]>) -> String {
     let mut output = String::new();
     let has_any = prices.len() >= 15; // Need at least 15 for RSI(14)
 
@@ -388,6 +391,17 @@ fn format_indicators(prices: &[f64], current_price: f64) -> String {
             bb.bandwidth,
             indicators::bollinger_signal(&bb),
         ));
+    }
+
+    // VWAP (Volume Weighted Average Price) — only when volume data is available
+    if let Some(vols) = volumes {
+        if let Some(vwap_val) = indicators::vwap(prices, vols) {
+            output.push_str(&format!(
+                "  VWAP:     {} {}\n",
+                format_price(vwap_val),
+                indicators::vwap_signal(current_price, vwap_val),
+            ));
+        }
     }
 
     output

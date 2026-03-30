@@ -291,6 +291,47 @@ pub fn bollinger_signal(bb: &BollingerBands) -> &'static str {
     }
 }
 
+/// Calculate Volume Weighted Average Price (VWAP).
+///
+/// VWAP = Σ(price × volume) / Σ(volume)
+///
+/// This is a key benchmark for institutional traders:
+/// - Price above VWAP → buyers are in control
+/// - Price below VWAP → sellers are in control
+/// - Often acts as support/resistance level
+///
+/// Returns None if no valid volume data or all volumes are zero.
+pub fn vwap(prices: &[f64], volumes: &[f64]) -> Option<f64> {
+    if prices.is_empty() || volumes.is_empty() || prices.len() != volumes.len() {
+        return None;
+    }
+
+    let total_pv: f64 = prices.iter().zip(volumes.iter()).map(|(p, v)| p * v).sum();
+    let total_vol: f64 = volumes.iter().sum();
+
+    if total_vol <= 0.0 {
+        return None;
+    }
+
+    Some(total_pv / total_vol)
+}
+
+/// Interpret VWAP position as a human-readable signal.
+pub fn vwap_signal(current_price: f64, vwap_value: f64) -> &'static str {
+    let diff_pct = ((current_price - vwap_value) / vwap_value) * 100.0;
+    if diff_pct > 3.0 {
+        "🟢 Well above VWAP (strong buyer control)"
+    } else if diff_pct > 0.5 {
+        "🟢 Above VWAP (buyers favored)"
+    } else if diff_pct > -0.5 {
+        "⚪ Near VWAP (equilibrium)"
+    } else if diff_pct > -3.0 {
+        "🔴 Below VWAP (sellers favored)"
+    } else {
+        "🔴 Well below VWAP (strong seller control)"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +544,40 @@ mod tests {
 
         let middle = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: 0.6 };
         assert!(bollinger_signal(&middle).contains("bullish"));
+    }
+
+    #[test]
+    fn test_vwap_basic() {
+        let prices = vec![100.0, 102.0, 98.0, 101.0, 103.0];
+        let volumes = vec![1000.0, 2000.0, 1500.0, 1000.0, 3000.0];
+        let result = vwap(&prices, &volumes);
+        assert!(result.is_some());
+        let v = result.unwrap();
+        // Manual: (100*1000 + 102*2000 + 98*1500 + 101*1000 + 103*3000) / (1000+2000+1500+1000+3000)
+        // = (100000 + 204000 + 147000 + 101000 + 309000) / 8500
+        // = 861000 / 8500 = 101.29...
+        assert!((v - 101.294).abs() < 0.01, "VWAP should be ~101.29, got {}", v);
+    }
+
+    #[test]
+    fn test_vwap_empty() {
+        assert!(vwap(&[], &[]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_mismatched_lengths() {
+        assert!(vwap(&[100.0], &[1000.0, 2000.0]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_zero_volume() {
+        assert!(vwap(&[100.0, 200.0], &[0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_signal() {
+        assert!(vwap_signal(105.0, 100.0).contains("above VWAP"));
+        assert!(vwap_signal(95.0, 100.0).contains("below VWAP"));
+        assert!(vwap_signal(100.0, 100.0).contains("Near VWAP"));
     }
 }
