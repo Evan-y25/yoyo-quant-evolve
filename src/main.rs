@@ -270,30 +270,44 @@ async fn main() {
                 continue;
             }
             s if s.starts_with("/compare ") => {
-                let args: Vec<&str> = s.trim_start_matches("/compare ").split_whitespace().collect();
+                let args: Vec<&str> = s
+                    .trim_start_matches("/compare ")
+                    .split_whitespace()
+                    .collect();
                 if args.len() < 2 {
-                    println!("{DIM}  Usage: /compare bitcoin ethereum  or  /compare AAPL MSFT{RESET}\n");
+                    println!(
+                        "{DIM}  Usage: /compare bitcoin ethereum  or  /compare AAPL MSFT{RESET}\n"
+                    );
                     continue;
                 }
-                println!("{DIM}  comparing {} assets concurrently...{RESET}", args.len());
-                let futures: Vec<_> = args.iter().map(|symbol| {
-                    let sym = symbol.to_string();
-                    async move {
-                        let tool = tools::GetPriceTool::new();
-                        let ctx = yoagent::types::ToolContext {
-                            tool_call_id: "direct".into(),
-                            tool_name: "get_price".into(),
-                            cancel: tokio_util::sync::CancellationToken::new(),
-                            on_update: None,
-                            on_progress: None,
-                        };
-                        let result = tool.execute(serde_json::json!({"symbol": sym}), ctx).await;
-                        (sym, result)
-                    }
-                }).collect();
+                println!(
+                    "{DIM}  comparing {} assets concurrently...{RESET}",
+                    args.len()
+                );
+                let futures: Vec<_> = args
+                    .iter()
+                    .map(|symbol| {
+                        let sym = symbol.to_string();
+                        async move {
+                            let tool = tools::GetPriceTool::new();
+                            let ctx = yoagent::types::ToolContext {
+                                tool_call_id: "direct".into(),
+                                tool_name: "get_price".into(),
+                                cancel: tokio_util::sync::CancellationToken::new(),
+                                on_update: None,
+                                on_progress: None,
+                            };
+                            let result =
+                                tool.execute(serde_json::json!({"symbol": sym}), ctx).await;
+                            (sym, result)
+                        }
+                    })
+                    .collect();
                 let results = futures::future::join_all(futures).await;
                 println!();
-                println!("{BOLD}{CYAN}  ┌─ Comparison ──────────────────────────────────────{RESET}");
+                println!(
+                    "{BOLD}{CYAN}  ┌─ Comparison ──────────────────────────────────────{RESET}"
+                );
                 for (sym, result) in &results {
                     match result {
                         Ok(r) => {
@@ -310,13 +324,22 @@ async fn main() {
                         Err(e) => println!("{CYAN}  │{RESET} {RED}{sym}: Error — {e}{RESET}"),
                     }
                 }
-                println!("{BOLD}{CYAN}  └────────────────────────────────────────────────────{RESET}\n");
+                println!(
+                    "{BOLD}{CYAN}  └────────────────────────────────────────────────────{RESET}\n"
+                );
                 continue;
             }
-            s if s.starts_with("/history ") || s.starts_with("/ta ") || s.starts_with("/chart ") => {
-                let cmd = if s.starts_with("/history") { "/history " }
-                          else if s.starts_with("/ta") { "/ta " }
-                          else { "/chart " };
+            s if s.starts_with("/history ")
+                || s.starts_with("/ta ")
+                || s.starts_with("/chart ") =>
+            {
+                let cmd = if s.starts_with("/history") {
+                    "/history "
+                } else if s.starts_with("/ta") {
+                    "/ta "
+                } else {
+                    "/chart "
+                };
                 let parts: Vec<&str> = s.trim_start_matches(cmd).split_whitespace().collect();
                 if parts.is_empty() {
                     println!("{DIM}  Usage: /history bitcoin [30d]  or  /ta AAPL 1y{RESET}\n");
@@ -326,7 +349,8 @@ async fn main() {
                 let range = parts.get(1).copied().unwrap_or("30d");
                 println!("{DIM}  fetching {symbol} history ({range})...{RESET}");
                 let tool = tools::GetPriceHistoryTool::new();
-                execute_tool_direct(&tool, serde_json::json!({"symbol": symbol, "range": range})).await;
+                execute_tool_direct(&tool, serde_json::json!({"symbol": symbol, "range": range}))
+                    .await;
                 continue;
             }
             s if s.starts_with("/news") => {
@@ -354,7 +378,9 @@ async fn main() {
             }
             s if s.starts_with('/') && !s[1..].contains(char::is_whitespace) => {
                 // Unknown single-word slash command
-                println!("{DIM}  Unknown command: {s}. Type /help for available commands.{RESET}\n");
+                println!(
+                    "{DIM}  Unknown command: {s}. Type /help for available commands.{RESET}\n"
+                );
                 continue;
             }
             _ => {}
@@ -468,7 +494,10 @@ async fn handle_watchlist_command(input: &str) {
                     println!("{RED}  Error saving watchlist: {e}{RESET}\n");
                     return;
                 }
-                println!("{GREEN}  ✓ Added '{symbol}' to watchlist ({} total){RESET}\n", wl.len());
+                println!(
+                    "{GREEN}  ✓ Added '{symbol}' to watchlist ({} total){RESET}\n",
+                    wl.len()
+                );
             } else {
                 println!("{DIM}  '{symbol}' is already in your watchlist{RESET}\n");
             }
@@ -485,7 +514,10 @@ async fn handle_watchlist_command(input: &str) {
                     println!("{RED}  Error saving watchlist: {e}{RESET}\n");
                     return;
                 }
-                println!("{GREEN}  ✓ Removed '{symbol}' from watchlist ({} remaining){RESET}\n", wl.len());
+                println!(
+                    "{GREEN}  ✓ Removed '{symbol}' from watchlist ({} remaining){RESET}\n",
+                    wl.len()
+                );
             } else {
                 println!("{DIM}  '{symbol}' was not in your watchlist{RESET}\n");
             }
@@ -577,7 +609,10 @@ async fn handle_watchlist_command(input: &str) {
                         println!("{RED}  Error saving watchlist: {e}{RESET}\n");
                         return;
                     }
-                    println!("{GREEN}  ✓ Added '{unknown}' to watchlist ({} total){RESET}\n", wl.len());
+                    println!(
+                        "{GREEN}  ✓ Added '{unknown}' to watchlist ({} total){RESET}\n",
+                        wl.len()
+                    );
                 } else {
                     println!("{DIM}  '{unknown}' is already in your watchlist{RESET}\n");
                 }
@@ -610,12 +645,8 @@ async fn handle_portfolio_command(input: &str) {
         Some("buy") | Some("sell") => {
             let side = parts[0];
             if parts.len() < 4 {
-                println!(
-                    "{DIM}  Usage: /pf {side} <symbol> <quantity> <price> [reason]{RESET}"
-                );
-                println!(
-                    "{DIM}  Example: /pf buy bitcoin 0.5 87000 BTC looks bullish{RESET}\n"
-                );
+                println!("{DIM}  Usage: /pf {side} <symbol> <quantity> <price> [reason]{RESET}");
+                println!("{DIM}  Example: /pf buy bitcoin 0.5 87000 BTC looks bullish{RESET}\n");
                 return;
             }
             let symbol = parts[1];
@@ -654,10 +685,7 @@ async fn handle_portfolio_command(input: &str) {
                     println!(
                         "\n{GREEN}  ✓ Trade #{id} opened: {side} {symbol} x{quantity} @ ${price:.2} (${notional:.2}){RESET}"
                     );
-                    println!(
-                        "{DIM}  Cash remaining: ${:.2}{RESET}\n",
-                        portfolio.cash
-                    );
+                    println!("{DIM}  Cash remaining: ${:.2}{RESET}\n", portfolio.cash);
                 }
                 Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
             }
@@ -696,16 +724,9 @@ async fn handle_portfolio_command(input: &str) {
                     }
                     let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
                     let pnl_sign = if pnl >= 0.0 { "+" } else { "" };
-                    println!(
-                        "\n{GREEN}  ✓ Trade #{trade_id} closed at ${exit_price:.2}{RESET}"
-                    );
-                    println!(
-                        "  {pnl_emoji} P&L: {pnl_sign}${pnl:.2}"
-                    );
-                    println!(
-                        "{DIM}  Cash: ${:.2}{RESET}\n",
-                        portfolio.cash
-                    );
+                    println!("\n{GREEN}  ✓ Trade #{trade_id} closed at ${exit_price:.2}{RESET}");
+                    println!("  {pnl_emoji} P&L: {pnl_sign}${pnl:.2}");
+                    println!("{DIM}  Cash: ${:.2}{RESET}\n", portfolio.cash);
                 }
                 Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
             }
@@ -735,7 +756,9 @@ async fn handle_portfolio_command(input: &str) {
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
-    println!("  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)");
+    println!(
+        "  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)"
+    );
     println!("  {BOLD}/history{RESET} <sym> [rng]  Price history + TA with chart (e.g. /history bitcoin 30d)");
     println!("  {BOLD}/ta{RESET} <sym> [rng]       Alias for /history (e.g. /ta AAPL 90d)");
     println!("  {BOLD}/market{RESET}              Market overview — top crypto + US indices");
@@ -861,9 +884,7 @@ fn format_tool_summary(tool_name: &str, args: &serde_json::Value) -> String {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("?");
             format!("🔍 search '{}'", query)
         }
-        "get_market_overview" => {
-            "🌍 market overview".to_string()
-        }
+        "get_market_overview" => "🌍 market overview".to_string(),
         "get_price_history" => {
             let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("?");
             let range = args.get("range").and_then(|v| v.as_str()).unwrap_or("30d");

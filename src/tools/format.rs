@@ -62,12 +62,20 @@ pub fn format_change(change_pct: f64) -> String {
 
 /// Get the appropriate emoji for a price change direction.
 pub fn change_emoji(change_pct: f64) -> &'static str {
-    if change_pct >= 0.0 { "📈" } else { "📉" }
+    if change_pct >= 0.0 {
+        "📈"
+    } else {
+        "📉"
+    }
 }
 
 /// Get the colored circle emoji for a change direction.
 pub fn change_dot(change_pct: f64) -> &'static str {
-    if change_pct >= 0.0 { "🟢" } else { "🔴" }
+    if change_pct >= 0.0 {
+        "🟢"
+    } else {
+        "🔴"
+    }
 }
 
 /// Heuristic: stock tickers are 1-5 uppercase letters, or contain special chars like ^ or .

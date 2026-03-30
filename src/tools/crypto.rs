@@ -8,7 +8,9 @@ use reqwest::Client;
 use serde_json::Value;
 use yoagent::types::*;
 
-use super::format::{change_emoji, format_change, format_large_number_usd, format_price, is_likely_stock_ticker};
+use super::format::{
+    change_emoji, format_change, format_large_number_usd, format_price, is_likely_stock_ticker,
+};
 use super::http::{create_client, fetch_json_with_retry};
 
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
@@ -61,19 +63,13 @@ impl AgentTool for GetPriceTool {
         })
     }
 
-    async fn execute(
-        &self,
-        params: Value,
-        _ctx: ToolContext,
-    ) -> Result<ToolResult, ToolError> {
+    async fn execute(&self, params: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let symbol = params["symbol"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'symbol' parameter".into()))?
             .trim();
 
-        let source = params["source"]
-            .as_str()
-            .unwrap_or("auto");
+        let source = params["source"].as_str().unwrap_or("auto");
 
         let result = match source {
             "coingecko" => fetch_coingecko_price(&self.client, symbol).await,

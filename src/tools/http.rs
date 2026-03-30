@@ -50,12 +50,18 @@ pub async fn fetch_json_with_retry(client: &Client, url: &str) -> Result<Value, 
                 }
 
                 if status.as_u16() == 429 {
-                    last_error = format!("Rate limited (429). Retry {}/{}", attempt + 1, MAX_RETRIES);
+                    last_error =
+                        format!("Rate limited (429). Retry {}/{}", attempt + 1, MAX_RETRIES);
                     continue;
                 }
 
                 if status.is_server_error() {
-                    last_error = format!("Server error ({}). Retry {}/{}", status, attempt + 1, MAX_RETRIES);
+                    last_error = format!(
+                        "Server error ({}). Retry {}/{}",
+                        status,
+                        attempt + 1,
+                        MAX_RETRIES
+                    );
                     continue;
                 }
 
@@ -64,7 +70,12 @@ pub async fn fetch_json_with_retry(client: &Client, url: &str) -> Result<Value, 
             }
             Err(e) => {
                 if e.is_timeout() || e.is_connect() {
-                    last_error = format!("Network error: {}. Retry {}/{}", e, attempt + 1, MAX_RETRIES);
+                    last_error = format!(
+                        "Network error: {}. Retry {}/{}",
+                        e,
+                        attempt + 1,
+                        MAX_RETRIES
+                    );
                     continue;
                 }
                 return Err(format!("HTTP request failed: {}", e));
@@ -72,7 +83,10 @@ pub async fn fetch_json_with_retry(client: &Client, url: &str) -> Result<Value, 
         }
     }
 
-    Err(format!("Failed after {} retries. Last error: {}", MAX_RETRIES, last_error))
+    Err(format!(
+        "Failed after {} retries. Last error: {}",
+        MAX_RETRIES, last_error
+    ))
 }
 
 #[cfg(test)]

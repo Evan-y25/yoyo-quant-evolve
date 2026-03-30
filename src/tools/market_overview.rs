@@ -52,15 +52,8 @@ impl AgentTool for GetMarketOverviewTool {
         })
     }
 
-    async fn execute(
-        &self,
-        params: Value,
-        _ctx: ToolContext,
-    ) -> Result<ToolResult, ToolError> {
-        let limit = params["limit"]
-            .as_u64()
-            .unwrap_or(10)
-            .min(25) as usize;
+    async fn execute(&self, params: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
+        let limit = params["limit"].as_u64().unwrap_or(10).min(25) as usize;
 
         let mut sections = Vec::new();
 
@@ -92,7 +85,9 @@ async fn fetch_top_crypto(client: &Client, limit: usize) -> Result<String, Strin
 
     let data = fetch_json_with_retry(client, &url).await?;
 
-    let coins = data.as_array().ok_or("Expected array from CoinGecko markets endpoint")?;
+    let coins = data
+        .as_array()
+        .ok_or("Expected array from CoinGecko markets endpoint")?;
 
     if coins.is_empty() {
         return Ok("🪙 No crypto data available".into());
@@ -179,12 +174,8 @@ async fn fetch_yahoo_index(client: &Client, symbol: &str) -> Result<(f64, f64), 
     let data = fetch_json_with_retry(client, &url).await?;
 
     let meta = &data["chart"]["result"][0]["meta"];
-    let price = meta["regularMarketPrice"]
-        .as_f64()
-        .ok_or("no price data")?;
-    let prev_close = meta["chartPreviousClose"]
-        .as_f64()
-        .unwrap_or(price);
+    let price = meta["regularMarketPrice"].as_f64().ok_or("no price data")?;
+    let prev_close = meta["chartPreviousClose"].as_f64().unwrap_or(price);
 
     let change_pct = if prev_close > 0.0 {
         ((price - prev_close) / prev_close) * 100.0

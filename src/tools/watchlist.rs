@@ -40,8 +40,8 @@ impl Watchlist {
     /// Save watchlist to disk.
     pub fn save(&self) -> Result<(), String> {
         let symbols: Vec<&String> = self.symbols.iter().collect();
-        let json =
-            serde_json::to_string_pretty(&symbols).map_err(|e| format!("Serialize error: {}", e))?;
+        let json = serde_json::to_string_pretty(&symbols)
+            .map_err(|e| format!("Serialize error: {}", e))?;
         std::fs::write(WATCHLIST_FILE, json).map_err(|e| format!("Write error: {}", e))
     }
 
@@ -84,7 +84,9 @@ fn normalize_symbol(symbol: &str) -> String {
     if s.starts_with('^')
         || s.contains('.')
         || s.contains('-')
-        || (s.len() <= 5 && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
+        || (s.len() <= 5
+            && s.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
     {
         s.to_uppercase()
     } else {

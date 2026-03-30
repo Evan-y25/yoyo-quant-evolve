@@ -70,23 +70,15 @@ impl AgentTool for GetPriceHistoryTool {
         })
     }
 
-    async fn execute(
-        &self,
-        params: Value,
-        _ctx: ToolContext,
-    ) -> Result<ToolResult, ToolError> {
+    async fn execute(&self, params: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let symbol = params["symbol"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'symbol' parameter".into()))?
             .trim();
 
-        let range = params["range"]
-            .as_str()
-            .unwrap_or("30d");
+        let range = params["range"].as_str().unwrap_or("30d");
 
-        let source = params["source"]
-            .as_str()
-            .unwrap_or("auto");
+        let source = params["source"].as_str().unwrap_or("auto");
 
         let result = match source {
             "coingecko" => fetch_coingecko_history(&self.client, symbol, range).await,
@@ -111,7 +103,10 @@ impl AgentTool for GetPriceHistoryTool {
                 content: vec![Content::Text { text }],
                 details: serde_json::json!({}),
             }),
-            Err(e) => Err(ToolError::Failed(format!("Failed to fetch price history: {}", e))),
+            Err(e) => Err(ToolError::Failed(format!(
+                "Failed to fetch price history: {}",
+                e
+            ))),
         }
     }
 }
@@ -155,12 +150,14 @@ async fn fetch_coingecko_history(
 
     let data = fetch_json_with_retry(client, &url).await?;
 
-    let prices = data["prices"]
-        .as_array()
-        .ok_or_else(|| format!("No price data found for '{}'. Use search_symbol to find the correct ID.", coin_id))?;
+    let prices = data["prices"].as_array().ok_or_else(|| {
+        format!(
+            "No price data found for '{}'. Use search_symbol to find the correct ID.",
+            coin_id
+        )
+    })?;
 
-    let volumes = data["total_volumes"]
-        .as_array();
+    let volumes = data["total_volumes"].as_array();
 
     if prices.is_empty() {
         return Err("No historical data available".into());
@@ -192,16 +189,19 @@ async fn fetch_coingecko_history(
     // Calculate OHLCV summary
     let first_price = price_points.first().unwrap().1;
     let last_price = price_points.last().unwrap().1;
-    let high = price_points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
-    let low = price_points.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let high = price_points
+        .iter()
+        .map(|p| p.1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let low = price_points
+        .iter()
+        .map(|p| p.1)
+        .fold(f64::INFINITY, f64::min);
     let total_vol: f64 = volume_points.iter().sum();
     let change_pct = ((last_price - first_price) / first_price) * 100.0;
 
     // Build output
-    let mut output = format!(
-        "📊 {} — {} Price History (CoinGecko)\n",
-        coin_id, range
-    );
+    let mut output = format!("📊 {} — {} Price History (CoinGecko)\n", coin_id, range);
     output.push_str("─────────────────────────────────────────\n");
     output.push_str(&format!("  Open:   {}\n", format_price(first_price)));
     output.push_str(&format!("  High:   {}\n", format_price(high)));
@@ -209,7 +209,10 @@ async fn fetch_coingecko_history(
     output.push_str(&format!("  Close:  {}\n", format_price(last_price)));
     output.push_str(&format!("  Change: {}\n", format_change(change_pct)));
     if total_vol > 0.0 {
-        output.push_str(&format!("  Volume: {}\n", format_large_number_usd(total_vol)));
+        output.push_str(&format!(
+            "  Volume: {}\n",
+            format_large_number_usd(total_vol)
+        ));
     }
     output.push_str("─────────────────────────────────────────\n");
 
@@ -224,19 +227,33 @@ async fn fetch_coingecko_history(
     let (est_highs, est_lows) = estimate_high_low_from_closes(&prices_only);
 
     // Technical indicators (only if we have enough data)
-    let vol_ref = if volume_points.is_empty() { None } else { Some(volume_points.as_slice()) };
-    let highs_ref = if est_highs.is_empty() { None } else { Some(est_highs.as_slice()) };
-    let lows_ref = if est_lows.is_empty() { None } else { Some(est_lows.as_slice()) };
-    output.push_str(&format_indicators(&prices_only, last_price, vol_ref, highs_ref, lows_ref));
+    let vol_ref = if volume_points.is_empty() {
+        None
+    } else {
+        Some(volume_points.as_slice())
+    };
+    let highs_ref = if est_highs.is_empty() {
+        None
+    } else {
+        Some(est_highs.as_slice())
+    };
+    let lows_ref = if est_lows.is_empty() {
+        None
+    } else {
+        Some(est_lows.as_slice())
+    };
+    output.push_str(&format_indicators(
+        &prices_only,
+        last_price,
+        vol_ref,
+        highs_ref,
+        lows_ref,
+    ));
 
     Ok(output)
 }
 
-async fn fetch_yahoo_history(
-    client: &Client,
-    symbol: &str,
-    range: &str,
-) -> Result<String, String> {
+async fn fetch_yahoo_history(client: &Client, symbol: &str, range: &str) -> Result<String, String> {
     let (yahoo_range, interval) = range_to_yahoo_params(range);
     let url = format!(
         "{}/{}?range={}&interval={}",
@@ -261,9 +278,7 @@ async fn fetch_yahoo_history(
         .as_array()
         .and_then(|arr| arr.first());
 
-    let timestamps = result["timestamp"]
-        .as_array()
-        .ok_or("No timestamp data")?;
+    let timestamps = result["timestamp"].as_array().ok_or("No timestamp data")?;
 
     let closes: Vec<f64> = indicators
         .and_then(|q| q["close"].as_array())
@@ -315,7 +330,10 @@ async fn fetch_yahoo_history(
     output.push_str(&format!("  Close:    {}\n", format_price(last_close)));
     output.push_str(&format!("  Change:   {}\n", format_change(change_pct)));
     if total_vol > 0.0 {
-        output.push_str(&format!("  Volume:   {}\n", format_large_number_usd(total_vol)));
+        output.push_str(&format!(
+            "  Volume:   {}\n",
+            format_large_number_usd(total_vol)
+        ));
     }
     output.push_str(&format!("  Periods:  {}\n", timestamps.len()));
     output.push_str("─────────────────────────────────────────\n");
@@ -325,10 +343,24 @@ async fn fetch_yahoo_history(
 
     // Technical indicators
     // Technical indicators
-    let vol_ref = if volumes.is_empty() { None } else { Some(volumes.as_slice()) };
-    let highs_ref = if highs.is_empty() { None } else { Some(highs.as_slice()) };
-    let lows_ref = if lows.is_empty() { None } else { Some(lows.as_slice()) };
-    output.push_str(&format_indicators(&closes, last_close, vol_ref, highs_ref, lows_ref));
+    let vol_ref = if volumes.is_empty() {
+        None
+    } else {
+        Some(volumes.as_slice())
+    };
+    let highs_ref = if highs.is_empty() {
+        None
+    } else {
+        Some(highs.as_slice())
+    };
+    let lows_ref = if lows.is_empty() {
+        None
+    } else {
+        Some(lows.as_slice())
+    };
+    output.push_str(&format_indicators(
+        &closes, last_close, vol_ref, highs_ref, lows_ref,
+    ));
 
     Ok(output)
 }
@@ -361,7 +393,10 @@ fn format_indicators(
 
         // Show trend signal if we have both SMAs
         if let Some(sma7) = indicators::sma(prices, 7) {
-            output.push_str(&format!("  Trend:    {}\n", indicators::sma_signal(current_price, sma7, sma20)));
+            output.push_str(&format!(
+                "  Trend:    {}\n",
+                indicators::sma_signal(current_price, sma7, sma20)
+            ));
         }
     }
 
@@ -383,9 +418,7 @@ fn format_indicators(
     if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
         output.push_str(&format!(
             "  MACD:     {:.4} | Signal: {:.4} | Hist: {:.4}\n",
-            macd_result.macd_line,
-            macd_result.signal_line,
-            macd_result.histogram,
+            macd_result.macd_line, macd_result.signal_line, macd_result.histogram,
         ));
         output.push_str(&format!(
             "  MACD:     {}\n",
@@ -433,7 +466,9 @@ fn format_indicators(
 
     // Support & Resistance levels
     if prices.len() >= 20 {
-        if let Some((supports, resistances)) = indicators::support_resistance(prices, prices.len().min(50)) {
+        if let Some((supports, resistances)) =
+            indicators::support_resistance(prices, prices.len().min(50))
+        {
             if !resistances.is_empty() {
                 let levels: Vec<String> = resistances.iter().map(|r| format_price(*r)).collect();
                 output.push_str(&format!("  Resist:   {}\n", levels.join(" | ")));
@@ -458,7 +493,13 @@ fn format_indicators(
     }
 
     // Aggregate Signal Summary
-    output.push_str(&format_signal_summary(prices, current_price, volumes, highs, lows));
+    output.push_str(&format_signal_summary(
+        prices,
+        current_price,
+        volumes,
+        highs,
+        lows,
+    ));
 
     output
 }
@@ -603,7 +644,9 @@ fn format_signal_summary(
         "  Overall:  {} {} ({} bullish, {} bearish, {} neutral)\n",
         emoji, verdict, bullish, bearish, neutral,
     ));
-    output.push_str("  ⚠️  Technical analysis is not financial advice. Always do your own research.\n");
+    output.push_str(
+        "  ⚠️  Technical analysis is not financial advice. Always do your own research.\n",
+    );
 
     output
 }
@@ -768,8 +811,11 @@ mod tests {
         // Steadily increasing prices should produce bullish summary
         let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 2.0).collect();
         let result = format_signal_summary(&prices, 198.0, None, None, None);
-        assert!(result.contains("bullish") || result.contains("Bullish"),
-            "Uptrend should produce bullish summary, got: {}", result);
+        assert!(
+            result.contains("bullish") || result.contains("Bullish"),
+            "Uptrend should produce bullish summary, got: {}",
+            result
+        );
     }
 
     #[test]
@@ -777,8 +823,11 @@ mod tests {
         // Steadily decreasing prices should produce bearish summary
         let prices: Vec<f64> = (0..50).map(|i| 200.0 - i as f64 * 2.0).collect();
         let result = format_signal_summary(&prices, 102.0, None, None, None);
-        assert!(result.contains("earish") || result.contains("Bearish"),
-            "Downtrend should produce bearish summary, got: {}", result);
+        assert!(
+            result.contains("earish") || result.contains("Bearish"),
+            "Downtrend should produce bearish summary, got: {}",
+            result
+        );
     }
 
     #[test]
@@ -786,14 +835,20 @@ mod tests {
         // Too few data points should return empty
         let prices = vec![100.0, 101.0];
         let result = format_signal_summary(&prices, 101.0, None, None, None);
-        assert!(result.is_empty(), "Insufficient data should produce empty summary");
+        assert!(
+            result.is_empty(),
+            "Insufficient data should produce empty summary"
+        );
     }
 
     #[test]
     fn test_signal_summary_includes_disclaimer() {
         let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64).collect();
         let result = format_signal_summary(&prices, 149.0, None, None, None);
-        assert!(result.contains("not financial advice"), "Should include disclaimer");
+        assert!(
+            result.contains("not financial advice"),
+            "Should include disclaimer"
+        );
     }
 
     #[test]
@@ -804,8 +859,20 @@ mod tests {
         assert_eq!(lows.len(), 5);
         // Highs should be >= closes, lows should be <= closes
         for (i, &c) in closes.iter().enumerate() {
-            assert!(highs[i] >= c, "High {} should be >= close {} at index {}", highs[i], c, i);
-            assert!(lows[i] <= c, "Low {} should be <= close {} at index {}", lows[i], c, i);
+            assert!(
+                highs[i] >= c,
+                "High {} should be >= close {} at index {}",
+                highs[i],
+                c,
+                i
+            );
+            assert!(
+                lows[i] <= c,
+                "Low {} should be <= close {} at index {}",
+                lows[i],
+                c,
+                i
+            );
         }
     }
 

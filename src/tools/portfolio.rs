@@ -110,10 +110,9 @@ impl Portfolio {
 
     /// Save portfolio to disk.
     pub fn save(&self) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Serialize error: {}", e))?;
-        std::fs::write(PORTFOLIO_FILE, json)
-            .map_err(|e| format!("Write error: {}", e))
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("Serialize error: {}", e))?;
+        std::fs::write(PORTFOLIO_FILE, json).map_err(|e| format!("Write error: {}", e))
     }
 
     /// Open a new paper trade (buy or sell).
@@ -181,7 +180,8 @@ impl Portfolio {
             return Err("Exit price must be positive".into());
         }
 
-        let trade = self.trades
+        let trade = self
+            .trades
             .iter_mut()
             .find(|t| t.id == trade_id && t.is_open())
             .ok_or_else(|| format!("No open trade found with ID #{}", trade_id))?;
@@ -215,10 +215,7 @@ impl Portfolio {
 
     /// Calculate total realized P&L from closed trades.
     pub fn total_realized_pnl(&self) -> f64 {
-        self.trades
-            .iter()
-            .filter_map(|t| t.realized_pnl)
-            .sum()
+        self.trades.iter().filter_map(|t| t.realized_pnl).sum()
     }
 
     /// Calculate win rate from closed trades.
@@ -227,7 +224,10 @@ impl Portfolio {
         if closed.is_empty() {
             return None;
         }
-        let wins = closed.iter().filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0).count();
+        let wins = closed
+            .iter()
+            .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+            .count();
         Some((wins as f64 / closed.len() as f64) * 100.0)
     }
 
@@ -236,7 +236,10 @@ impl Portfolio {
         let mut output = String::new();
         output.push_str("💼 Paper Trading Portfolio\n");
         output.push_str("─────────────────────────────────────────\n");
-        output.push_str(&format!("  Starting Balance: ${:.2}\n", self.starting_balance));
+        output.push_str(&format!(
+            "  Starting Balance: ${:.2}\n",
+            self.starting_balance
+        ));
         output.push_str(&format!("  Cash Available:   ${:.2}\n", self.cash));
 
         let open = self.open_positions();
@@ -391,7 +394,11 @@ pub fn log_trade_to_journal(trade: &PaperTrade, action: &str) -> Result<(), Stri
                 trade.symbol,
                 trade.entry_price,
                 trade.quantity,
-                if trade.reasoning.is_empty() { "(no reason given)" } else { &trade.reasoning },
+                if trade.reasoning.is_empty() {
+                    "(no reason given)"
+                } else {
+                    &trade.reasoning
+                },
                 trade.confidence,
                 trade.entry_time,
             )
@@ -451,7 +458,9 @@ mod tests {
     #[test]
     fn test_open_trade_buy() {
         let mut p = Portfolio::new();
-        let id = p.open_trade("bitcoin", "buy", 1.0, 87000.0, "BTC looks bullish", 7).unwrap();
+        let id = p
+            .open_trade("bitcoin", "buy", 1.0, 87000.0, "BTC looks bullish", 7)
+            .unwrap();
         assert_eq!(id, 1);
         assert_eq!(p.cash, 100_000.0 - 87_000.0);
         assert_eq!(p.trades.len(), 1);
@@ -470,19 +479,25 @@ mod tests {
     fn test_open_trade_invalid_quantity() {
         let mut p = Portfolio::new();
         assert!(p.open_trade("bitcoin", "buy", 0.0, 87000.0, "", 5).is_err());
-        assert!(p.open_trade("bitcoin", "buy", -1.0, 87000.0, "", 5).is_err());
+        assert!(p
+            .open_trade("bitcoin", "buy", -1.0, 87000.0, "", 5)
+            .is_err());
     }
 
     #[test]
     fn test_open_trade_invalid_side() {
         let mut p = Portfolio::new();
-        assert!(p.open_trade("bitcoin", "hodl", 1.0, 87000.0, "", 5).is_err());
+        assert!(p
+            .open_trade("bitcoin", "hodl", 1.0, 87000.0, "", 5)
+            .is_err());
     }
 
     #[test]
     fn test_close_trade() {
         let mut p = Portfolio::new();
-        let id = p.open_trade("AAPL", "buy", 10.0, 200.0, "Earnings play", 6).unwrap();
+        let id = p
+            .open_trade("AAPL", "buy", 10.0, 200.0, "Earnings play", 6)
+            .unwrap();
         assert_eq!(p.cash, 100_000.0 - 2000.0);
 
         let pnl = p.close_trade(id, 220.0).unwrap();
@@ -494,7 +509,9 @@ mod tests {
     #[test]
     fn test_close_trade_loss() {
         let mut p = Portfolio::new();
-        let id = p.open_trade("AAPL", "buy", 10.0, 200.0, "Bad timing", 4).unwrap();
+        let id = p
+            .open_trade("AAPL", "buy", 10.0, 200.0, "Bad timing", 4)
+            .unwrap();
         let pnl = p.close_trade(id, 180.0).unwrap();
         assert_eq!(pnl, -200.0); // 10 * (180-200) = -200
     }
@@ -508,7 +525,8 @@ mod tests {
     #[test]
     fn test_unrealized_pnl() {
         let mut p = Portfolio::new();
-        p.open_trade("bitcoin", "buy", 0.5, 80000.0, "DCA", 5).unwrap();
+        p.open_trade("bitcoin", "buy", 0.5, 80000.0, "DCA", 5)
+            .unwrap();
         let trade = &p.trades[0];
         // If BTC goes to 90000, unrealized = 0.5 * (90000 - 80000) = 5000
         assert_eq!(trade.unrealized_pnl(90000.0), 5000.0);
@@ -519,7 +537,8 @@ mod tests {
     #[test]
     fn test_sell_trade_pnl() {
         let mut p = Portfolio::new();
-        p.open_trade("bitcoin", "sell", 0.5, 90000.0, "Shorting BTC", 5).unwrap();
+        p.open_trade("bitcoin", "sell", 0.5, 90000.0, "Shorting BTC", 5)
+            .unwrap();
         let trade = &p.trades[0];
         // Short: sell at 90k, price drops to 80k → profit
         assert_eq!(trade.unrealized_pnl(80000.0), 5000.0);
@@ -541,7 +560,11 @@ mod tests {
         p.close_trade(id3, 90.0).unwrap();
 
         let wr = p.win_rate().unwrap();
-        assert!((wr - 66.67).abs() < 0.1, "Win rate should be ~66.7%, got {}", wr);
+        assert!(
+            (wr - 66.67).abs() < 0.1,
+            "Win rate should be ~66.7%, got {}",
+            wr
+        );
     }
 
     #[test]
@@ -604,10 +627,14 @@ mod tests {
     #[test]
     fn test_multiple_trades_same_symbol() {
         let mut p = Portfolio::new();
-        p.open_trade("bitcoin", "buy", 0.1, 80000.0, "First buy", 5).unwrap();
-        p.open_trade("bitcoin", "buy", 0.2, 82000.0, "Adding", 6).unwrap();
+        p.open_trade("bitcoin", "buy", 0.1, 80000.0, "First buy", 5)
+            .unwrap();
+        p.open_trade("bitcoin", "buy", 0.2, 82000.0, "Adding", 6)
+            .unwrap();
         assert_eq!(p.open_positions().len(), 2);
-        let total_btc: f64 = p.open_positions().iter()
+        let total_btc: f64 = p
+            .open_positions()
+            .iter()
             .filter(|t| t.symbol == "bitcoin")
             .map(|t| t.quantity)
             .sum();

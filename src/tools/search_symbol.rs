@@ -52,11 +52,7 @@ impl AgentTool for SearchSymbolTool {
         })
     }
 
-    async fn execute(
-        &self,
-        params: Value,
-        _ctx: ToolContext,
-    ) -> Result<ToolResult, ToolError> {
+    async fn execute(&self, params: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let query = params["query"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("missing 'query' parameter".into()))?
@@ -108,9 +104,7 @@ async fn search_coingecko(client: &Client, query: &str) -> Result<String, String
         let name = coin["name"].as_str().unwrap_or("?");
         let symbol = coin["symbol"].as_str().unwrap_or("?");
         let rank = coin["market_cap_rank"].as_u64();
-        let rank_str = rank
-            .map(|r| format!(" (rank #{})", r))
-            .unwrap_or_default();
+        let rank_str = rank.map(|r| format!(" (rank #{})", r)).unwrap_or_default();
 
         output.push_str(&format!(
             "  {} ({}) — ID: \"{}\"{}\n",

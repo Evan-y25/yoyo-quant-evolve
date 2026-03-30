@@ -53,11 +53,8 @@ pub fn rsi(prices: &[f64], period: usize) -> Option<f64> {
     }
 
     // Initial average gain/loss from first `period` changes
-    let mut avg_gain: f64 = changes[..period]
-        .iter()
-        .filter(|&&c| c > 0.0)
-        .sum::<f64>()
-        / period as f64;
+    let mut avg_gain: f64 =
+        changes[..period].iter().filter(|&&c| c > 0.0).sum::<f64>() / period as f64;
 
     let mut avg_loss: f64 = changes[..period]
         .iter()
@@ -177,7 +174,8 @@ pub fn macd(prices: &[f64], fast: usize, slow: usize, signal_period: usize) -> O
 
     // Calculate signal line: EMA of MACD series
     let multiplier_signal = 2.0 / (signal_period as f64 + 1.0);
-    let initial_signal: f64 = macd_series[..signal_period].iter().sum::<f64>() / signal_period as f64;
+    let initial_signal: f64 =
+        macd_series[..signal_period].iter().sum::<f64>() / signal_period as f64;
     let mut signal = initial_signal;
     for &m in &macd_series[signal_period..] {
         signal = (m - signal) * multiplier_signal + signal;
@@ -633,7 +631,11 @@ mod tests {
         let prices: Vec<f64> = (0..20).map(|i| 100.0 + i as f64).collect();
         let result = rsi(&prices, 14);
         assert!(result.is_some());
-        assert!(result.unwrap() > 70.0, "RSI in uptrend should be > 70, got {}", result.unwrap());
+        assert!(
+            result.unwrap() > 70.0,
+            "RSI in uptrend should be > 70, got {}",
+            result.unwrap()
+        );
     }
 
     #[test]
@@ -642,7 +644,11 @@ mod tests {
         let prices: Vec<f64> = (0..20).map(|i| 100.0 - i as f64).collect();
         let result = rsi(&prices, 14);
         assert!(result.is_some());
-        assert!(result.unwrap() < 30.0, "RSI in downtrend should be < 30, got {}", result.unwrap());
+        assert!(
+            result.unwrap() < 30.0,
+            "RSI in downtrend should be < 30, got {}",
+            result.unwrap()
+        );
     }
 
     #[test]
@@ -686,8 +692,15 @@ mod tests {
         let result = macd(&prices, 12, 26, 9);
         assert!(result.is_some(), "MACD should compute with 50 data points");
         let r = result.unwrap();
-        assert!(r.macd_line > 0.0, "MACD line should be positive in uptrend, got {}", r.macd_line);
-        assert!(r.histogram > 0.0 || r.histogram.abs() < 1.0, "Histogram should be positive or near zero in steady uptrend");
+        assert!(
+            r.macd_line > 0.0,
+            "MACD line should be positive in uptrend, got {}",
+            r.macd_line
+        );
+        assert!(
+            r.histogram > 0.0 || r.histogram.abs() < 1.0,
+            "Histogram should be positive or near zero in steady uptrend"
+        );
     }
 
     #[test]
@@ -697,7 +710,11 @@ mod tests {
         let result = macd(&prices, 12, 26, 9);
         assert!(result.is_some());
         let r = result.unwrap();
-        assert!(r.macd_line < 0.0, "MACD line should be negative in downtrend, got {}", r.macd_line);
+        assert!(
+            r.macd_line < 0.0,
+            "MACD line should be negative in downtrend, got {}",
+            r.macd_line
+        );
     }
 
     #[test]
@@ -718,23 +735,36 @@ mod tests {
     #[test]
     fn test_macd_signal_interpretation() {
         // Bullish: MACD above signal, positive
-        let bullish = MacdResult { macd_line: 5.0, signal_line: 3.0, histogram: 2.0 };
+        let bullish = MacdResult {
+            macd_line: 5.0,
+            signal_line: 3.0,
+            histogram: 2.0,
+        };
         assert!(macd_signal(&bullish).contains("Bullish"));
 
         // Bearish: MACD below signal, negative
-        let bearish = MacdResult { macd_line: -5.0, signal_line: -3.0, histogram: -2.0 };
+        let bearish = MacdResult {
+            macd_line: -5.0,
+            signal_line: -3.0,
+            histogram: -2.0,
+        };
         assert!(macd_signal(&bearish).contains("Bearish"));
     }
 
     #[test]
     fn test_macd_components_consistent() {
-        let prices: Vec<f64> = (0..50).map(|i| 100.0 + (i as f64 * 0.5).sin() * 10.0).collect();
+        let prices: Vec<f64> = (0..50)
+            .map(|i| 100.0 + (i as f64 * 0.5).sin() * 10.0)
+            .collect();
         let result = macd(&prices, 12, 26, 9);
         assert!(result.is_some());
         let r = result.unwrap();
         // histogram = macd_line - signal_line
         let expected_hist = r.macd_line - r.signal_line;
-        assert!((r.histogram - expected_hist).abs() < 0.0001, "Histogram should equal MACD - Signal");
+        assert!(
+            (r.histogram - expected_hist).abs() < 0.0001,
+            "Histogram should equal MACD - Signal"
+        );
     }
 
     #[test]
@@ -755,7 +785,11 @@ mod tests {
         // Alternating prices should create wider bands
         let mut prices = Vec::new();
         for i in 0..20 {
-            if i % 2 == 0 { prices.push(110.0); } else { prices.push(90.0); }
+            if i % 2 == 0 {
+                prices.push(110.0);
+            } else {
+                prices.push(90.0);
+            }
         }
         let result = bollinger_bands(&prices, 20, 2.0);
         assert!(result.is_some());
@@ -763,7 +797,10 @@ mod tests {
         assert_eq!(bb.middle, 100.0); // Average of 110 and 90
         assert!(bb.upper > 100.0, "Upper band should be above middle");
         assert!(bb.lower < 100.0, "Lower band should be below middle");
-        assert!(bb.bandwidth > 0.0, "Bandwidth should be positive for volatile prices");
+        assert!(
+            bb.bandwidth > 0.0,
+            "Bandwidth should be positive for volatile prices"
+        );
     }
 
     #[test]
@@ -779,25 +816,51 @@ mod tests {
         // Price at middle → %B ≈ 0.5
         let mut prices = Vec::new();
         for i in 0..19 {
-            if i % 2 == 0 { prices.push(110.0); } else { prices.push(90.0); }
+            if i % 2 == 0 {
+                prices.push(110.0);
+            } else {
+                prices.push(90.0);
+            }
         }
         // Last price at the middle
         prices.push(100.0);
         let result = bollinger_bands(&prices, 20, 2.0);
         assert!(result.is_some());
         let bb = result.unwrap();
-        assert!((bb.percent_b - 0.5).abs() < 0.1, "%B should be near 0.5 when price is at middle, got {}", bb.percent_b);
+        assert!(
+            (bb.percent_b - 0.5).abs() < 0.1,
+            "%B should be near 0.5 when price is at middle, got {}",
+            bb.percent_b
+        );
     }
 
     #[test]
     fn test_bollinger_signal_interpretation() {
-        let overbought = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: 1.1 };
+        let overbought = BollingerBands {
+            middle: 100.0,
+            upper: 120.0,
+            lower: 80.0,
+            bandwidth: 40.0,
+            percent_b: 1.1,
+        };
         assert!(bollinger_signal(&overbought).contains("overbought"));
 
-        let oversold = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: -0.1 };
+        let oversold = BollingerBands {
+            middle: 100.0,
+            upper: 120.0,
+            lower: 80.0,
+            bandwidth: 40.0,
+            percent_b: -0.1,
+        };
         assert!(bollinger_signal(&oversold).contains("oversold"));
 
-        let middle = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: 0.6 };
+        let middle = BollingerBands {
+            middle: 100.0,
+            upper: 120.0,
+            lower: 80.0,
+            bandwidth: 40.0,
+            percent_b: 0.6,
+        };
         assert!(bollinger_signal(&middle).contains("bullish"));
     }
 
@@ -811,7 +874,11 @@ mod tests {
         // Manual: (100*1000 + 102*2000 + 98*1500 + 101*1000 + 103*3000) / (1000+2000+1500+1000+3000)
         // = (100000 + 204000 + 147000 + 101000 + 309000) / 8500
         // = 861000 / 8500 = 101.29...
-        assert!((v - 101.294).abs() < 0.01, "VWAP should be ~101.29, got {}", v);
+        assert!(
+            (v - 101.294).abs() < 0.01,
+            "VWAP should be ~101.29, got {}",
+            v
+        );
     }
 
     #[test]
@@ -839,11 +906,23 @@ mod tests {
     #[test]
     fn test_atr_basic() {
         // Simple case: steady prices with known ranges
-        let highs =  vec![12.0, 12.5, 13.0, 12.8, 13.2, 12.9, 13.1, 12.7, 13.3, 13.5, 13.0, 13.2, 13.4, 13.1, 13.6, 13.3];
-        let lows =   vec![10.0, 10.5, 11.0, 10.8, 11.2, 10.9, 11.1, 10.7, 11.3, 11.5, 11.0, 11.2, 11.4, 11.1, 11.6, 11.3];
-        let closes = vec![11.0, 11.5, 12.0, 11.8, 12.2, 11.9, 12.1, 11.7, 12.3, 12.5, 12.0, 12.2, 12.4, 12.1, 12.6, 12.3];
+        let highs = vec![
+            12.0, 12.5, 13.0, 12.8, 13.2, 12.9, 13.1, 12.7, 13.3, 13.5, 13.0, 13.2, 13.4, 13.1,
+            13.6, 13.3,
+        ];
+        let lows = vec![
+            10.0, 10.5, 11.0, 10.8, 11.2, 10.9, 11.1, 10.7, 11.3, 11.5, 11.0, 11.2, 11.4, 11.1,
+            11.6, 11.3,
+        ];
+        let closes = vec![
+            11.0, 11.5, 12.0, 11.8, 12.2, 11.9, 12.1, 11.7, 12.3, 12.5, 12.0, 12.2, 12.4, 12.1,
+            12.6, 12.3,
+        ];
         let result = atr(&highs, &lows, &closes, 14);
-        assert!(result.is_some(), "ATR should compute with 16 data points and period 14");
+        assert!(
+            result.is_some(),
+            "ATR should compute with 16 data points and period 14"
+        );
         let val = result.unwrap();
         assert!(val > 0.0, "ATR should be positive, got {}", val);
     }
@@ -879,18 +958,27 @@ mod tests {
         // Create a price series with clear swing highs and lows
         let mut prices = Vec::new();
         // Upswing
-        for i in 0..10 { prices.push(100.0 + i as f64); }
+        for i in 0..10 {
+            prices.push(100.0 + i as f64);
+        }
         // Downswing
-        for i in 0..10 { prices.push(109.0 - i as f64); }
+        for i in 0..10 {
+            prices.push(109.0 - i as f64);
+        }
         // Upswing again
-        for i in 0..10 { prices.push(100.0 + i as f64 * 0.8); }
+        for i in 0..10 {
+            prices.push(100.0 + i as f64 * 0.8);
+        }
         // Price ends at ~107
 
         let result = support_resistance(&prices, 30);
         assert!(result.is_some(), "Should detect support/resistance levels");
         let (supports, resistances) = result.unwrap();
         // Should find some levels
-        assert!(!supports.is_empty() || !resistances.is_empty(), "Should find at least one level");
+        assert!(
+            !supports.is_empty() || !resistances.is_empty(),
+            "Should find at least one level"
+        );
     }
 
     #[test]
@@ -906,7 +994,11 @@ mod tests {
         let result = dedup_levels(levels);
         // 100.0 and 100.3 are 0.3% apart → merge
         // 105.0 and 105.4 are ~0.38% → merge
-        assert!(result.len() <= 3, "Should merge close levels, got {:?}", result);
+        assert!(
+            result.len() <= 3,
+            "Should merge close levels, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -916,7 +1008,10 @@ mod tests {
         let lows: Vec<f64> = (0..20).map(|i| 98.0 + i as f64).collect();
         let closes: Vec<f64> = (0..20).map(|i| 101.0 + i as f64).collect();
         let result = stochastic(&highs, &lows, &closes, 14, 3);
-        assert!(result.is_some(), "Stochastic should compute with 20 data points");
+        assert!(
+            result.is_some(),
+            "Stochastic should compute with 20 data points"
+        );
         let r = result.unwrap();
         assert!(r.k > 50.0, "%K should be high in uptrend, got {}", r.k);
     }
@@ -999,7 +1094,15 @@ mod tests {
         let result = stochastic(&highs, &lows, &closes, 14, 3);
         assert!(result.is_some());
         let r = result.unwrap();
-        assert!(r.k >= 0.0 && r.k <= 100.0, "%K should be 0-100, got {}", r.k);
-        assert!(r.d >= 0.0 && r.d <= 100.0, "%D should be 0-100, got {}", r.d);
+        assert!(
+            r.k >= 0.0 && r.k <= 100.0,
+            "%K should be 0-100, got {}",
+            r.k
+        );
+        assert!(
+            r.d >= 0.0 && r.d <= 100.0,
+            "%D should be 0-100, got {}",
+            r.d
+        );
     }
 }

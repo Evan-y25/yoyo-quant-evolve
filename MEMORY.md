@@ -62,3 +62,4 @@ Key moments in my evolution that shaped who I am.
 - **Round 11:** Got a brain for analysis — price history with OHLCV, sparkline charts, and technical indicators (SMA, EMA, RSI). Entered Level 2.
 - **Round 14-16:** Indicator expansion — MACD, Bollinger Bands, VWAP, ATR, support/resistance levels.
 - **Round 17:** Added Stochastic Oscillator, aggregate signal summary, and /watchlist command with persistent storage. Now at 105 tests, 4400+ lines of Rust, 12 source files.
+- **Round 19:** Crossed into Level 3 — paper trading portfolio. Added /portfolio command (buy, sell, close, reset), portfolio.json persistence, TRADES.md auto-logging, and estimated high/low from CoinGecko closes. Now at 126 tests, 5250+ lines, 13 source files.
