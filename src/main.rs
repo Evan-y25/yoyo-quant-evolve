@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.19.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.20.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -627,10 +627,10 @@ async fn handle_watchlist_command(input: &str) {
 /// Handle /portfolio, /pf, /trade commands.
 ///
 /// Subcommands:
-///   /portfolio             — show portfolio summary
-///   /pf buy <sym> <qty> <price> [reason]  — open a buy position
-///   /pf sell <sym> <qty> <price> [reason] — open a short position
-///   /pf close <id> <price>                — close a position
+///   /portfolio             — show portfolio summary (with live prices!)
+///   /pf buy <sym> <qty> [price] [reason]  — open a buy position (auto-fetches price if omitted)
+///   /pf sell <sym> <qty> [price] [reason] — open a short position (auto-fetches price if omitted)
+///   /pf close <id> [price]                — close a position (auto-fetches price if omitted)
 ///   /pf reset                             — reset to starting balance
 async fn handle_portfolio_command(input: &str) {
     let args = input
@@ -644,9 +644,11 @@ async fn handle_portfolio_command(input: &str) {
     match parts.first().copied() {
         Some("buy") | Some("sell") => {
             let side = parts[0];
-            if parts.len() < 4 {
-                println!("{DIM}  Usage: /pf {side} <symbol> <quantity> <price> [reason]{RESET}");
-                println!("{DIM}  Example: /pf buy bitcoin 0.5 87000 BTC looks bullish{RESET}\n");
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /pf {side} <symbol> <quantity> [price] [reason]{RESET}");
+                println!("{DIM}  Example: /pf buy bitcoin 0.5          (auto-fetches live price){RESET}");
+                println!("{DIM}  Example: /pf buy bitcoin 0.5 87000    (manual price){RESET}");
+                println!("{DIM}  Example: /pf buy AAPL 10 BTC looks bullish  (auto-price + reason){RESET}\n");
                 return;
             }
             let symbol = parts[1];
@@ -657,15 +659,28 @@ async fn handle_portfolio_command(input: &str) {
                     return;
                 }
             };
-            let price: f64 = match parts[3].parse() {
-                Ok(p) => p,
-                Err(_) => {
-                    println!("{RED}  Error: price must be a number{RESET}\n");
-                    return;
+
+            // Check if parts[3] is a number (manual price) or text (reason with auto-price)
+            let (price, reason_start) = if parts.len() > 3 {
+                if let Ok(p) = parts[3].parse::<f64>() {
+                    (p, 4) // Manual price provided
+                } else {
+                    // parts[3] is not a number — it's the start of a reason, auto-fetch price
+                    match fetch_live_price_for_trade(symbol).await {
+                        Some(p) => (p, 3),
+                        None => return,
+                    }
+                }
+            } else {
+                // No price or reason — auto-fetch
+                match fetch_live_price_for_trade(symbol).await {
+                    Some(p) => (p, parts.len()),
+                    None => return,
                 }
             };
-            let reasoning = if parts.len() > 4 {
-                parts[4..].join(" ")
+
+            let reasoning = if parts.len() > reason_start {
+                parts[reason_start..].join(" ")
             } else {
                 String::new()
             };
@@ -691,9 +706,10 @@ async fn handle_portfolio_command(input: &str) {
             }
         }
         Some("close") => {
-            if parts.len() < 3 {
-                println!("{DIM}  Usage: /pf close <trade_id> <exit_price>{RESET}");
-                println!("{DIM}  Example: /pf close 1 92000{RESET}\n");
+            if parts.len() < 2 {
+                println!("{DIM}  Usage: /pf close <trade_id> [exit_price]{RESET}");
+                println!("{DIM}  Example: /pf close 1         (auto-fetches live price){RESET}");
+                println!("{DIM}  Example: /pf close 1 92000   (manual price){RESET}\n");
                 return;
             }
             let trade_id: u32 = match parts[1].trim_start_matches('#').parse() {
@@ -703,11 +719,29 @@ async fn handle_portfolio_command(input: &str) {
                     return;
                 }
             };
-            let exit_price: f64 = match parts[2].parse() {
-                Ok(p) => p,
-                Err(_) => {
-                    println!("{RED}  Error: exit_price must be a number{RESET}\n");
-                    return;
+
+            // Auto-fetch price if not provided
+            let exit_price: f64 = if parts.len() >= 3 {
+                match parts[2].parse() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        println!("{RED}  Error: exit_price must be a number{RESET}\n");
+                        return;
+                    }
+                }
+            } else {
+                // Look up the symbol from the trade and auto-fetch
+                let portfolio = tools::portfolio::Portfolio::load();
+                let trade = match portfolio.trades.iter().find(|t| t.id == trade_id && t.is_open()) {
+                    Some(t) => t,
+                    None => {
+                        println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
+                        return;
+                    }
+                };
+                match fetch_live_price_for_trade(&trade.symbol).await {
+                    Some(p) => p,
+                    None => return,
                 }
             };
 
@@ -744,11 +778,55 @@ async fn handle_portfolio_command(input: &str) {
         }
         None | Some("show") | Some("summary") => {
             let portfolio = tools::portfolio::Portfolio::load();
-            println!("\n{}", portfolio.summary());
+            let open = portfolio.open_positions();
+            if open.is_empty() {
+                println!("\n{}", portfolio.summary());
+            } else {
+                // Fetch live prices for open positions
+                println!("{DIM}  Fetching live prices for open positions...{RESET}");
+                let symbols: Vec<String> = open.iter().map(|t| t.symbol.clone()).collect();
+                let unique_symbols: std::collections::HashSet<String> = symbols.into_iter().collect();
+
+                let futures: Vec<_> = unique_symbols
+                    .into_iter()
+                    .map(|sym| {
+                        let s = sym.clone();
+                        async move {
+                            let result = tools::fetch_live_price(&s).await;
+                            (s, result)
+                        }
+                    })
+                    .collect();
+                let results = futures::future::join_all(futures).await;
+
+                let price_map: std::collections::HashMap<String, f64> = results
+                    .into_iter()
+                    .filter_map(|(sym, r)| r.ok().map(|(price, _)| (sym, price)))
+                    .collect();
+
+                println!("\n{}", portfolio.summary_with_prices(&price_map));
+            }
         }
         Some(unknown) => {
             println!("{DIM}  Unknown portfolio command: {unknown}");
             println!("  Usage: /portfolio [buy|sell|close|reset|show]{RESET}\n");
+        }
+    }
+}
+
+/// Helper to fetch a live price and print status messages.
+/// Returns Some(price) on success, None on failure (with error already printed).
+async fn fetch_live_price_for_trade(symbol: &str) -> Option<f64> {
+    println!("{DIM}  Fetching live price for {symbol}...{RESET}");
+    match tools::fetch_live_price(symbol).await {
+        Ok((price, name)) => {
+            println!("{GREEN}  📈 Live price: ${price:.2} ({name}){RESET}");
+            Some(price)
+        }
+        Err(e) => {
+            println!("{RED}  Error fetching price: {e}{RESET}");
+            println!("{DIM}  Tip: specify price manually: /pf buy {symbol} <qty> <price>{RESET}\n");
+            None
         }
     }
 }
@@ -769,9 +847,9 @@ fn print_help() {
     println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
     println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
     println!("  {BOLD}/portfolio{RESET}           Paper trading portfolio summary");
-    println!("  {BOLD}/pf buy{RESET} <sym> <qty> <price> [reason]  Open a buy position");
-    println!("  {BOLD}/pf sell{RESET} <sym> <qty> <price> [reason] Open a short position");
-    println!("  {BOLD}/pf close{RESET} <id> <price>       Close position at price");
+    println!("  {BOLD}/pf buy{RESET} <sym> <qty> [price] [reason]  Open a buy (auto-fetches price!)");
+    println!("  {BOLD}/pf sell{RESET} <sym> <qty> [price] [reason] Open a short (auto-fetches price!)");
+    println!("  {BOLD}/pf close{RESET} <id> [price]       Close position (auto-fetches if omitted)");
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");

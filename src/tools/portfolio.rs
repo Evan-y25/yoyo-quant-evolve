@@ -231,6 +231,135 @@ impl Portfolio {
         Some((wins as f64 / closed.len() as f64) * 100.0)
     }
 
+    /// Get portfolio summary with live prices for unrealized P&L.
+    pub fn summary_with_prices(&self, price_map: &std::collections::HashMap<String, f64>) -> String {
+        let mut output = String::new();
+        output.push_str("💼 Paper Trading Portfolio\n");
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  Starting Balance: ${:.2}\n",
+            self.starting_balance
+        ));
+        output.push_str(&format!("  Cash Available:   ${:.2}\n", self.cash));
+
+        let open = self.open_positions();
+        let closed = self.closed_positions();
+        let realized = self.total_realized_pnl();
+
+        // Calculate total unrealized P&L
+        let mut total_unrealized = 0.0;
+        let mut total_position_value = 0.0;
+        for trade in &open {
+            if let Some(&current_price) = price_map.get(&trade.symbol) {
+                let upnl = trade.unrealized_pnl(current_price);
+                total_unrealized += upnl;
+                total_position_value += trade.quantity * current_price;
+            }
+        }
+
+        output.push_str(&format!("  Open Positions:   {}\n", open.len()));
+        output.push_str(&format!("  Closed Trades:    {}\n", closed.len()));
+        output.push_str(&format!(
+            "  Realized P&L:     {}{:.2}\n",
+            if realized >= 0.0 { "+$" } else { "-$" },
+            realized.abs()
+        ));
+        if !open.is_empty() && !price_map.is_empty() {
+            output.push_str(&format!(
+                "  Unrealized P&L:   {}{:.2}\n",
+                if total_unrealized >= 0.0 { "+$" } else { "-$" },
+                total_unrealized.abs()
+            ));
+            let total_pnl = realized + total_unrealized;
+            let total_value = self.cash + total_position_value;
+            let total_return = ((total_value - self.starting_balance) / self.starting_balance) * 100.0;
+            output.push_str(&format!(
+                "  Total P&L:        {}{:.2} ({}{:.2}%)\n",
+                if total_pnl >= 0.0 { "+$" } else { "-$" },
+                total_pnl.abs(),
+                if total_return >= 0.0 { "+" } else { "" },
+                total_return,
+            ));
+            output.push_str(&format!(
+                "  Portfolio Value:  ${:.2}\n",
+                total_value
+            ));
+        }
+
+        if let Some(wr) = self.win_rate() {
+            output.push_str(&format!("  Win Rate:         {:.1}%\n", wr));
+        }
+
+        // Show open positions with live P&L
+        if !open.is_empty() {
+            output.push_str("─────────────────────────────────────────\n");
+            output.push_str("  📈 Open Positions:\n");
+            for trade in &open {
+                let pnl_info = if let Some(&current_price) = price_map.get(&trade.symbol) {
+                    let upnl = trade.unrealized_pnl(current_price);
+                    let pnl_pct = trade.pnl_pct(current_price);
+                    let emoji = if upnl >= 0.0 { "🟢" } else { "🔴" };
+                    format!(
+                        " → ${:.2} {} {}{:.2} ({}{:.2}%)",
+                        current_price,
+                        emoji,
+                        if upnl >= 0.0 { "+$" } else { "-$" },
+                        upnl.abs(),
+                        if pnl_pct >= 0.0 { "+" } else { "" },
+                        pnl_pct,
+                    )
+                } else {
+                    String::new()
+                };
+
+                output.push_str(&format!(
+                    "    #{} {} {} x{:.4} @ ${:.2}{}\n",
+                    trade.id,
+                    trade.side.to_uppercase(),
+                    trade.symbol,
+                    trade.quantity,
+                    trade.entry_price,
+                    pnl_info,
+                ));
+                if !trade.reasoning.is_empty() {
+                    let reason = if trade.reasoning.len() > 60 {
+                        format!("{}...", &trade.reasoning[..57])
+                    } else {
+                        trade.reasoning.clone()
+                    };
+                    output.push_str(&format!("        Reason: {}\n", reason));
+                }
+            }
+        }
+
+        // Show recent closed trades (last 5)
+        if !closed.is_empty() {
+            output.push_str("─────────────────────────────────────────\n");
+            output.push_str("  📊 Recent Closed Trades:\n");
+            for trade in closed.iter().rev().take(5) {
+                let pnl = trade.realized_pnl.unwrap_or(0.0);
+                let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
+                output.push_str(&format!(
+                    "    #{} {} {} x{:.4} @ ${:.2} → ${:.2} {} {}{:.2}\n",
+                    trade.id,
+                    trade.side.to_uppercase(),
+                    trade.symbol,
+                    trade.quantity,
+                    trade.entry_price,
+                    trade.exit_price.unwrap_or(0.0),
+                    pnl_emoji,
+                    if pnl >= 0.0 { "+$" } else { "-$" },
+                    pnl.abs(),
+                ));
+            }
+        }
+
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str("  ⚠️  Paper trading only — no real money at risk.\n");
+
+        output
+    }
+
     /// Get portfolio summary as formatted text.
     pub fn summary(&self) -> String {
         let mut output = String::new();
@@ -639,5 +768,52 @@ mod tests {
             .map(|t| t.quantity)
             .sum();
         assert!((total_btc - 0.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_summary_with_prices() {
+        let mut p = Portfolio::new();
+        p.open_trade("bitcoin", "buy", 0.5, 80000.0, "BTC dip buy", 7)
+            .unwrap();
+        p.open_trade("AAPL", "buy", 10.0, 200.0, "Apple earnings", 6)
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 90000.0);
+        prices.insert("AAPL".to_string(), 210.0);
+
+        let summary = p.summary_with_prices(&prices);
+        assert!(summary.contains("Paper Trading Portfolio"));
+        assert!(summary.contains("Unrealized P&L"));
+        assert!(summary.contains("Total P&L"));
+        assert!(summary.contains("Portfolio Value"));
+        // BTC unrealized: 0.5 * (90000-80000) = 5000
+        // AAPL unrealized: 10 * (210-200) = 100
+        // Total unrealized: 5100
+        assert!(summary.contains("+$5,100") || summary.contains("+$5100"));
+    }
+
+    #[test]
+    fn test_summary_with_prices_empty() {
+        let p = Portfolio::new();
+        let prices = std::collections::HashMap::new();
+        let summary = p.summary_with_prices(&prices);
+        assert!(summary.contains("Paper Trading Portfolio"));
+        // No open positions means no unrealized P&L section
+        assert!(!summary.contains("Unrealized"));
+    }
+
+    #[test]
+    fn test_summary_with_prices_loss() {
+        let mut p = Portfolio::new();
+        p.open_trade("bitcoin", "buy", 1.0, 90000.0, "Top signal", 5)
+            .unwrap();
+
+        let mut prices = std::collections::HashMap::new();
+        prices.insert("bitcoin".to_string(), 85000.0);
+
+        let summary = p.summary_with_prices(&prices);
+        // Should show negative unrealized P&L
+        assert!(summary.contains("-$5,000") || summary.contains("-$5000"));
     }
 }

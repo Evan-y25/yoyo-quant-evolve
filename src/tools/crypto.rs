@@ -102,6 +102,65 @@ impl AgentTool for GetPriceTool {
     }
 }
 
+/// Fetch just the numeric USD price for a symbol (crypto or stock).
+/// Used internally by portfolio commands for live price lookups.
+/// Returns (price, symbol_display_name).
+pub async fn fetch_live_price(symbol: &str) -> Result<(f64, String), String> {
+    let client = create_client();
+    if is_likely_stock_ticker(symbol) {
+        fetch_yahoo_price_numeric(&client, symbol).await
+    } else {
+        match fetch_coingecko_price_numeric(&client, symbol).await {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                let yahoo_symbol = format!("{}-USD", symbol.to_uppercase());
+                fetch_yahoo_price_numeric(&client, &yahoo_symbol).await
+            }
+        }
+    }
+}
+
+/// Fetch just the numeric USD price from CoinGecko.
+async fn fetch_coingecko_price_numeric(client: &Client, coin_id: &str) -> Result<(f64, String), String> {
+    let url = format!(
+        "{}/simple/price?ids={}&vs_currencies=usd",
+        COINGECKO_BASE,
+        coin_id.to_lowercase()
+    );
+
+    let data = fetch_json_with_retry(client, &url).await?;
+    let coin_data = data.get(coin_id.to_lowercase().as_str())
+        .ok_or_else(|| format!("No data found for '{}'", coin_id))?;
+    let price = coin_data["usd"].as_f64()
+        .ok_or_else(|| format!("No USD price for '{}'", coin_id))?;
+
+    Ok((price, coin_id.to_string()))
+}
+
+/// Fetch just the numeric USD price from Yahoo Finance.
+async fn fetch_yahoo_price_numeric(client: &Client, symbol: &str) -> Result<(f64, String), String> {
+    let url = format!(
+        "{}/{}?range=1d&interval=5m",
+        YAHOO_CHART_BASE, symbol
+    );
+
+    let data = fetch_json_with_retry(client, &url).await?;
+    let result = data["chart"]["result"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or_else(|| format!("No data found for '{}'", symbol))?;
+
+    let meta = &result["meta"];
+    let price = meta["regularMarketPrice"].as_f64()
+        .ok_or_else(|| format!("No price for '{}'", symbol))?;
+    let name = meta["shortName"]
+        .as_str()
+        .or_else(|| meta["symbol"].as_str())
+        .unwrap_or(symbol);
+
+    Ok((price, name.to_string()))
+}
+
 async fn fetch_coingecko_price(client: &Client, coin_id: &str) -> Result<String, String> {
     let url = format!(
         "{}/simple/price?ids={}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true",
