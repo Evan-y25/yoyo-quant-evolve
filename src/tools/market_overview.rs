@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_format_price_large() {
-        assert_eq!(format_price(87432.15), "$87432.15");
+        assert_eq!(format_price(87432.15), "$87,432.15");
     }
 
     #[test]

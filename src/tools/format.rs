@@ -4,17 +4,35 @@
 //! prices, large numbers, and percentage changes.
 
 /// Format a price with adaptive decimal places based on magnitude.
-/// - >= $1: 2 decimal places ($87,432.15)
+/// - >= $1: 2 decimal places with comma separators ($87,432.15)
 /// - >= $0.01: 4 decimal places ($0.5000)
 /// - < $0.01: 6 decimal places ($0.000450)
 pub fn format_price(price: f64) -> String {
     if price >= 1.0 {
-        format!("${:.2}", price)
+        let integer_part = price as u64;
+        let decimal_part = format!("{:.2}", price.fract());
+        // decimal_part is "0.XX" — take the ".XX" part
+        let decimal_str = &decimal_part[1..]; // ".XX"
+        format!("${}{}", format_with_commas(integer_part), decimal_str)
     } else if price >= 0.01 {
         format!("${:.4}", price)
     } else {
         format!("${:.6}", price)
     }
+}
+
+/// Format an integer with comma separators (e.g., 87432 → "87,432").
+fn format_with_commas(n: u64) -> String {
+    let s = n.to_string();
+    let bytes: Vec<u8> = s.bytes().collect();
+    let mut result = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(b as char);
+    }
+    result
 }
 
 /// Format a large number with human-readable suffixes (T, B, M).
@@ -58,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_format_price_large() {
-        assert_eq!(format_price(87432.15), "$87432.15");
+        assert_eq!(format_price(87432.15), "$87,432.15");
     }
 
     #[test]
@@ -74,6 +92,25 @@ mod tests {
     #[test]
     fn test_format_price_one_dollar() {
         assert_eq!(format_price(1.0), "$1.00");
+    }
+
+    #[test]
+    fn test_format_price_thousands() {
+        assert_eq!(format_price(1234.56), "$1,234.56");
+    }
+
+    #[test]
+    fn test_format_price_millions() {
+        assert_eq!(format_price(1234567.89), "$1,234,567.89");
+    }
+
+    #[test]
+    fn test_format_with_commas() {
+        assert_eq!(format_with_commas(0), "0");
+        assert_eq!(format_with_commas(999), "999");
+        assert_eq!(format_with_commas(1000), "1,000");
+        assert_eq!(format_with_commas(1234567), "1,234,567");
+        assert_eq!(format_with_commas(1000000000), "1,000,000,000");
     }
 
     #[test]
