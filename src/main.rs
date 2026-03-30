@@ -275,11 +275,42 @@ async fn main() {
                     println!("{DIM}  Usage: /compare bitcoin ethereum  or  /compare AAPL MSFT{RESET}\n");
                     continue;
                 }
-                let tool = tools::GetPriceTool::new();
-                for symbol in &args {
-                    println!("{DIM}  fetching {symbol}...{RESET}");
-                    execute_tool_direct(&tool, serde_json::json!({"symbol": *symbol})).await;
+                println!("{DIM}  comparing {} assets concurrently...{RESET}", args.len());
+                let futures: Vec<_> = args.iter().map(|symbol| {
+                    let sym = symbol.to_string();
+                    async move {
+                        let tool = tools::GetPriceTool::new();
+                        let ctx = yoagent::types::ToolContext {
+                            tool_call_id: "direct".into(),
+                            tool_name: "get_price".into(),
+                            cancel: tokio_util::sync::CancellationToken::new(),
+                            on_update: None,
+                            on_progress: None,
+                        };
+                        let result = tool.execute(serde_json::json!({"symbol": sym}), ctx).await;
+                        (sym, result)
+                    }
+                }).collect();
+                let results = futures::future::join_all(futures).await;
+                println!();
+                println!("{BOLD}{CYAN}  ┌─ Comparison ──────────────────────────────────────{RESET}");
+                for (sym, result) in &results {
+                    match result {
+                        Ok(r) => {
+                            for c in &r.content {
+                                if let yoagent::types::Content::Text { text } = c {
+                                    // Indent each line
+                                    for line in text.lines() {
+                                        println!("{CYAN}  │{RESET} {line}");
+                                    }
+                                    println!("{CYAN}  │{RESET}");
+                                }
+                            }
+                        }
+                        Err(e) => println!("{CYAN}  │{RESET} {RED}{sym}: Error — {e}{RESET}"),
+                    }
                 }
+                println!("{BOLD}{CYAN}  └────────────────────────────────────────────────────{RESET}\n");
                 continue;
             }
             s if s.starts_with("/history ") => {
