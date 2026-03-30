@@ -13,6 +13,7 @@ use yoagent::types::*;
 
 use super::format::{format_change, format_large_number_usd, format_price};
 use super::http::{create_client, fetch_json_with_retry};
+use super::indicators;
 
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
 const YAHOO_CHART_BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart";
@@ -225,6 +226,9 @@ async fn fetch_coingecko_history(
     let prices_only: Vec<f64> = price_points.iter().map(|p| p.1).collect();
     output.push_str(&sparkline(&prices_only, 50));
 
+    // Technical indicators (only if we have enough data)
+    output.push_str(&format_indicators(&prices_only, last_price));
+
     Ok(output)
 }
 
@@ -319,7 +323,53 @@ async fn fetch_yahoo_history(
     // ASCII sparkline from close prices
     output.push_str(&sparkline(&closes, 50));
 
+    // Technical indicators
+    output.push_str(&format_indicators(&closes, last_close));
+
     Ok(output)
+}
+
+/// Format technical indicators for display.
+/// Only shows indicators when there's enough data.
+fn format_indicators(prices: &[f64], current_price: f64) -> String {
+    let mut output = String::new();
+    let has_any = prices.len() >= 15; // Need at least 15 for RSI(14)
+
+    if !has_any {
+        return output;
+    }
+
+    output.push_str("─────────────────────────────────────────\n");
+    output.push_str("  📐 Technical Indicators\n");
+
+    // SMA
+    if let Some(sma7) = indicators::sma(prices, 7) {
+        output.push_str(&format!("  SMA(7):   {}\n", format_price(sma7)));
+    }
+    if let Some(sma20) = indicators::sma(prices, 20) {
+        output.push_str(&format!("  SMA(20):  {}\n", format_price(sma20)));
+
+        // Show trend signal if we have both SMAs
+        if let Some(sma7) = indicators::sma(prices, 7) {
+            output.push_str(&format!("  Trend:    {}\n", indicators::sma_signal(current_price, sma7, sma20)));
+        }
+    }
+
+    // EMA
+    if let Some(ema12) = indicators::ema(prices, 12) {
+        output.push_str(&format!("  EMA(12):  {}\n", format_price(ema12)));
+    }
+
+    // RSI
+    if let Some(rsi_val) = indicators::rsi(prices, 14) {
+        output.push_str(&format!(
+            "  RSI(14):  {:.1} {}\n",
+            rsi_val,
+            indicators::rsi_signal(rsi_val)
+        ));
+    }
+
+    output
 }
 
 /// Generate an ASCII sparkline chart from price data.

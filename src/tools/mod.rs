@@ -6,6 +6,7 @@
 pub mod crypto;
 pub mod format;
 pub mod http;
+pub mod indicators;
 pub mod market_overview;
 pub mod price_history;
 pub mod search_symbol;
