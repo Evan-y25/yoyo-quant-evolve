@@ -3,6 +3,7 @@
 //! These tools give yoyo eyes on the market — real-time prices, search, overviews,
 //! news, and analysis from CoinGecko (crypto) and Yahoo Finance (stocks).
 
+pub mod alerts;
 pub mod crypto;
 pub mod format;
 pub mod http;

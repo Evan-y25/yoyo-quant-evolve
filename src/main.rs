@@ -372,6 +372,10 @@ async fn main() {
                 handle_portfolio_command(s).await;
                 continue;
             }
+            s if s.starts_with("/alert") => {
+                handle_alert_command(s).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -1038,6 +1042,144 @@ async fn fetch_live_price_for_trade(symbol: &str) -> Option<f64> {
     }
 }
 
+/// Handle /alert commands.
+///
+/// Subcommands:
+///   /alert                          — show all alerts + check active ones
+///   /alert <sym> above <price> [note] — alert when price goes above target
+///   /alert <sym> below <price> [note] — alert when price goes below target
+///   /alert rm <id>                  — remove an alert
+///   /alert clear                    — clear all triggered alerts
+async fn handle_alert_command(input: &str) {
+    let args = input.trim_start_matches("/alert").trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    match parts.first().copied() {
+        Some("rm") | Some("remove") | Some("delete") => {
+            if parts.len() < 2 {
+                println!("{DIM}  Usage: /alert rm <alert_id>{RESET}\n");
+                return;
+            }
+            let alert_id: u32 = match parts[1].trim_start_matches('#').parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("{RED}  Error: alert_id must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let mut am = tools::alerts::AlertManager::load();
+            if am.remove_alert(alert_id) {
+                if let Err(e) = am.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Alert #{alert_id} removed{RESET}\n");
+            } else {
+                println!("{DIM}  No alert found with ID #{alert_id}{RESET}\n");
+            }
+        }
+        Some("clear") => {
+            let mut am = tools::alerts::AlertManager::load();
+            let count = am.triggered_alerts().len();
+            am.clear_triggered();
+            if let Err(e) = am.save() {
+                println!("{RED}  Error saving: {e}{RESET}\n");
+                return;
+            }
+            println!("{GREEN}  ✓ Cleared {count} triggered alerts{RESET}\n");
+        }
+        None | Some("show") | Some("list") => {
+            // Show alerts and check active ones against live prices
+            let mut am = tools::alerts::AlertManager::load();
+            let active_symbols = am.active_symbols();
+
+            if !active_symbols.is_empty() {
+                println!("{DIM}  Checking prices for active alerts...{RESET}");
+                let futures: Vec<_> = active_symbols
+                    .into_iter()
+                    .map(|sym| {
+                        let s = sym.clone();
+                        async move {
+                            let result = tools::fetch_live_price(&s).await;
+                            (s, result)
+                        }
+                    })
+                    .collect();
+                let results = futures::future::join_all(futures).await;
+
+                let price_map: std::collections::HashMap<String, f64> = results
+                    .into_iter()
+                    .filter_map(|(sym, r)| r.ok().map(|(price, _)| (sym, price)))
+                    .collect();
+
+                let triggered = am.check_alerts(&price_map);
+                if !triggered.is_empty() {
+                    for (id, symbol, condition, target, current) in &triggered {
+                        let emoji = if *condition == "above" { "📈" } else { "📉" };
+                        println!(
+                            "\n{YELLOW}  🔔 ALERT #{id}: {symbol} is {condition} ${target:.2}! Current: ${current:.2} {emoji}{RESET}"
+                        );
+                    }
+                    if let Err(e) = am.save() {
+                        println!("{RED}  Error saving: {e}{RESET}");
+                    }
+                    println!();
+                }
+            }
+
+            println!("\n{}", am.format_alerts());
+        }
+        Some(symbol) => {
+            // Try to parse: /alert <symbol> <above|below> <price> [note]
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /alert <symbol> <above|below> <price> [note]{RESET}");
+                println!("{DIM}  Example: /alert bitcoin below 80000 Buy the dip{RESET}");
+                println!("{DIM}  Example: /alert AAPL above 200{RESET}\n");
+                return;
+            }
+
+            let condition = parts[1];
+            if condition != "above" && condition != "below" {
+                println!("{RED}  Error: condition must be 'above' or 'below'{RESET}\n");
+                return;
+            }
+
+            let target_price: f64 = match parts[2].parse() {
+                Ok(p) => p,
+                Err(_) => {
+                    println!("{RED}  Error: price must be a number{RESET}\n");
+                    return;
+                }
+            };
+
+            let note = if parts.len() > 3 {
+                parts[3..].join(" ")
+            } else {
+                String::new()
+            };
+
+            let mut am = tools::alerts::AlertManager::load();
+            match am.add_alert(symbol, condition, target_price, &note) {
+                Ok(id) => {
+                    if let Err(e) = am.save() {
+                        println!("{RED}  Error saving: {e}{RESET}\n");
+                        return;
+                    }
+                    let arrow = if condition == "above" { "↑" } else { "↓" };
+                    println!(
+                        "{GREEN}  ✓ Alert #{id}: {symbol} {arrow} {condition} ${target_price:.2}{RESET}"
+                    );
+                    if !note.is_empty() {
+                        println!("{DIM}    Note: {note}{RESET}");
+                    }
+                    println!("{DIM}    Alerts are checked when you use /alert, /portfolio, or /watchlist{RESET}\n");
+                }
+                Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+            }
+        }
+    }
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -1069,6 +1211,10 @@ fn print_help() {
         "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
     );
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
+    println!("  {BOLD}/alert{RESET}               Show price alerts + check for triggers");
+    println!("  {BOLD}/alert{RESET} <sym> above/below <price> [note]  Set a price alert");
+    println!("  {BOLD}/alert rm{RESET} <id>        Remove an alert");
+    println!("  {BOLD}/alert clear{RESET}          Clear triggered alerts");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
