@@ -11,6 +11,7 @@ pub mod market_overview;
 pub mod news;
 pub mod price_history;
 pub mod search_symbol;
+pub mod watchlist;
 
 pub use crypto::GetPriceTool;
 pub use market_overview::GetMarketOverviewTool;

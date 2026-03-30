@@ -337,6 +337,10 @@ async fn main() {
                 execute_tool_direct(&tool, serde_json::json!({"query": query})).await;
                 continue;
             }
+            s if s.starts_with("/watchlist") || s.starts_with("/watch") || s.starts_with("/wl") => {
+                handle_watchlist_command(s).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -427,6 +431,157 @@ async fn execute_tool_direct(tool: &dyn yoagent::types::AgentTool, params: serde
     }
 }
 
+/// Handle /watchlist, /watch, /wl commands.
+///
+/// Subcommands:
+///   /watchlist             — show current watchlist with prices
+///   /watchlist add <sym>   — add a symbol
+///   /watchlist rm <sym>    — remove a symbol
+///   /wl                    — shorthand for /watchlist
+async fn handle_watchlist_command(input: &str) {
+    // Strip the command prefix to get the arguments
+    let args = input
+        .trim_start_matches("/watchlist")
+        .trim_start_matches("/watch")
+        .trim_start_matches("/wl")
+        .trim();
+
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    match parts.first().copied() {
+        Some("add") | Some("+") => {
+            if parts.len() < 2 {
+                println!("{DIM}  Usage: /watchlist add bitcoin  or  /watchlist add AAPL{RESET}\n");
+                return;
+            }
+            let mut wl = tools::watchlist::Watchlist::load();
+            let symbol = parts[1];
+            if wl.add(symbol) {
+                if let Err(e) = wl.save() {
+                    println!("{RED}  Error saving watchlist: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Added '{symbol}' to watchlist ({} total){RESET}\n", wl.len());
+            } else {
+                println!("{DIM}  '{symbol}' is already in your watchlist{RESET}\n");
+            }
+        }
+        Some("rm") | Some("remove") | Some("-") => {
+            if parts.len() < 2 {
+                println!("{DIM}  Usage: /watchlist rm bitcoin  or  /watchlist rm AAPL{RESET}\n");
+                return;
+            }
+            let mut wl = tools::watchlist::Watchlist::load();
+            let symbol = parts[1];
+            if wl.remove(symbol) {
+                if let Err(e) = wl.save() {
+                    println!("{RED}  Error saving watchlist: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Removed '{symbol}' from watchlist ({} remaining){RESET}\n", wl.len());
+            } else {
+                println!("{DIM}  '{symbol}' was not in your watchlist{RESET}\n");
+            }
+        }
+        Some("clear") => {
+            let mut wl = tools::watchlist::Watchlist::load();
+            let count = wl.len();
+            wl.symbols.clear();
+            if let Err(e) = wl.save() {
+                println!("{RED}  Error saving watchlist: {e}{RESET}\n");
+                return;
+            }
+            println!("{GREEN}  ✓ Cleared watchlist ({count} symbols removed){RESET}\n");
+        }
+        None | Some("show") | Some("list") => {
+            // Show watchlist with prices
+            let wl = tools::watchlist::Watchlist::load();
+            if wl.is_empty() {
+                println!("\n{DIM}  📋 Your watchlist is empty.{RESET}");
+                println!("{DIM}  Add symbols with: /watchlist add bitcoin{RESET}");
+                println!("{DIM}  Or: /wl + AAPL{RESET}\n");
+                return;
+            }
+
+            println!("\n{BOLD}{CYAN}  📋 Watchlist ({} assets){RESET}", wl.len());
+            println!("{DIM}  ─────────────────────────────────────────{RESET}");
+            println!("{DIM}  Fetching prices...{RESET}");
+
+            // Fetch all prices concurrently
+            let symbols: Vec<String> = wl.symbols.iter().cloned().collect();
+            let futures: Vec<_> = symbols
+                .iter()
+                .map(|sym| {
+                    let s = sym.clone();
+                    async move {
+                        let tool = tools::GetPriceTool::new();
+                        let ctx = yoagent::types::ToolContext {
+                            tool_call_id: "direct".into(),
+                            tool_name: "get_price".into(),
+                            cancel: tokio_util::sync::CancellationToken::new(),
+                            on_update: None,
+                            on_progress: None,
+                        };
+                        let result = tool.execute(serde_json::json!({"symbol": s}), ctx).await;
+                        (s, result)
+                    }
+                })
+                .collect();
+            let results = futures::future::join_all(futures).await;
+
+            for (sym, result) in &results {
+                match result {
+                    Ok(r) => {
+                        for c in &r.content {
+                            if let yoagent::types::Content::Text { text } = c {
+                                // Print first two lines (emoji+name and price)
+                                let lines: Vec<&str> = text.lines().collect();
+                                if lines.len() >= 2 {
+                                    println!("  {}", lines[0]);
+                                    println!("    {}", lines[1]);
+                                    if let Some(change_line) = lines.get(2) {
+                                        println!("    {}", change_line);
+                                    }
+                                } else {
+                                    for line in lines {
+                                        println!("  {line}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => println!("  {RED}❌ {sym}: {e}{RESET}"),
+                }
+                println!();
+            }
+            println!("{DIM}  ─────────────────────────────────────────{RESET}");
+            println!("{DIM}  Manage: /wl + <sym> | /wl - <sym> | /wl clear{RESET}\n");
+        }
+        Some(unknown) => {
+            // Treat it as "add" if it looks like a symbol
+            if unknown.len() <= 15
+                && unknown
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == '^')
+            {
+                let mut wl = tools::watchlist::Watchlist::load();
+                if wl.add(unknown) {
+                    if let Err(e) = wl.save() {
+                        println!("{RED}  Error saving watchlist: {e}{RESET}\n");
+                        return;
+                    }
+                    println!("{GREEN}  ✓ Added '{unknown}' to watchlist ({} total){RESET}\n", wl.len());
+                } else {
+                    println!("{DIM}  '{unknown}' is already in your watchlist{RESET}\n");
+                }
+            } else {
+                println!("{DIM}  Unknown watchlist command: {unknown}");
+                println!("  Usage: /watchlist [add|rm|clear] [symbol]{RESET}\n");
+            }
+        }
+    }
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -436,6 +591,9 @@ fn print_help() {
     println!("  {BOLD}/news{RESET} <query>        Latest news headlines (e.g. /news bitcoin, /news AAPL earnings)");
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
     println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
+    println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
+    println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
+    println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
