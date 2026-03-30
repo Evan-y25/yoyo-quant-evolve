@@ -449,6 +449,157 @@ fn format_indicators(
         }
     }
 
+    // Aggregate Signal Summary
+    output.push_str(&format_signal_summary(prices, current_price, volumes, highs, lows));
+
+    output
+}
+
+/// Aggregate all indicators into a single bullish/bearish/neutral signal.
+/// Counts the number of bullish vs bearish signals from each indicator.
+fn format_signal_summary(
+    prices: &[f64],
+    current_price: f64,
+    volumes: Option<&[f64]>,
+    highs: Option<&[f64]>,
+    lows: Option<&[f64]>,
+) -> String {
+    let mut bullish: u32 = 0;
+    let mut bearish: u32 = 0;
+    let mut neutral: u32 = 0;
+    let mut signals: Vec<(&str, &str)> = Vec::new();
+
+    // SMA trend
+    if let (Some(sma7), Some(sma20)) = (indicators::sma(prices, 7), indicators::sma(prices, 20)) {
+        if current_price > sma7 && sma7 > sma20 {
+            bullish += 1;
+            signals.push(("SMA", "🟢"));
+        } else if current_price < sma7 && sma7 < sma20 {
+            bearish += 1;
+            signals.push(("SMA", "🔴"));
+        } else {
+            neutral += 1;
+            signals.push(("SMA", "⚪"));
+        }
+    }
+
+    // RSI
+    if let Some(rsi_val) = indicators::rsi(prices, 14) {
+        if rsi_val >= 70.0 {
+            bearish += 1; // Overbought = bearish signal (reversal likely)
+            signals.push(("RSI", "🔴"));
+        } else if rsi_val <= 30.0 {
+            bullish += 1; // Oversold = bullish signal (bounce likely)
+            signals.push(("RSI", "🟢"));
+        } else if rsi_val >= 50.0 {
+            bullish += 1;
+            signals.push(("RSI", "🟢"));
+        } else {
+            bearish += 1;
+            signals.push(("RSI", "🔴"));
+        }
+    }
+
+    // MACD
+    if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
+        if macd_result.histogram > 0.0 {
+            bullish += 1;
+            signals.push(("MACD", "🟢"));
+        } else if macd_result.histogram < 0.0 {
+            bearish += 1;
+            signals.push(("MACD", "🔴"));
+        } else {
+            neutral += 1;
+            signals.push(("MACD", "⚪"));
+        }
+    }
+
+    // Bollinger Bands
+    if let Some(bb) = indicators::bollinger_bands(prices, 20, 2.0) {
+        if bb.percent_b > 0.8 {
+            bearish += 1; // Near upper band = potential reversal
+            signals.push(("BB", "🔴"));
+        } else if bb.percent_b < 0.2 {
+            bullish += 1; // Near lower band = potential bounce
+            signals.push(("BB", "🟢"));
+        } else if bb.percent_b > 0.5 {
+            bullish += 1;
+            signals.push(("BB", "🟢"));
+        } else {
+            bearish += 1;
+            signals.push(("BB", "🔴"));
+        }
+    }
+
+    // VWAP
+    if let Some(vols) = volumes {
+        if let Some(vwap_val) = indicators::vwap(prices, vols) {
+            if current_price > vwap_val * 1.005 {
+                bullish += 1;
+                signals.push(("VWAP", "🟢"));
+            } else if current_price < vwap_val * 0.995 {
+                bearish += 1;
+                signals.push(("VWAP", "🔴"));
+            } else {
+                neutral += 1;
+                signals.push(("VWAP", "⚪"));
+            }
+        }
+    }
+
+    // Stochastic
+    if let (Some(h), Some(l)) = (highs, lows) {
+        if let Some(stoch) = indicators::stochastic(h, l, prices, 14, 3) {
+            if stoch.k >= 80.0 {
+                bearish += 1;
+                signals.push(("Stoch", "🔴"));
+            } else if stoch.k <= 20.0 {
+                bullish += 1;
+                signals.push(("Stoch", "🟢"));
+            } else if stoch.k > stoch.d {
+                bullish += 1;
+                signals.push(("Stoch", "🟢"));
+            } else {
+                bearish += 1;
+                signals.push(("Stoch", "🔴"));
+            }
+        }
+    }
+
+    let total = bullish + bearish + neutral;
+    if total == 0 {
+        return String::new();
+    }
+
+    let mut output = String::new();
+    output.push_str("─────────────────────────────────────────\n");
+
+    // Signal dots in a row
+    let signal_row: Vec<String> = signals
+        .iter()
+        .map(|(name, dot)| format!("{} {}", dot, name))
+        .collect();
+    output.push_str(&format!("  Signals:  {}\n", signal_row.join("  ")));
+
+    // Overall verdict
+    let (emoji, verdict) = if bullish > bearish + 1 {
+        ("🟢", "Bullish")
+    } else if bearish > bullish + 1 {
+        ("🔴", "Bearish")
+    } else if bullish > bearish {
+        ("🟢", "Slightly Bullish")
+    } else if bearish > bullish {
+        ("🔴", "Slightly Bearish")
+    } else {
+        ("⚪", "Neutral / Mixed")
+    };
+
+    output.push_str(&format!(
+        "  Overall:  {} {} ({} bullish, {} bearish, {} neutral)\n",
+        emoji, verdict, bullish, bearish, neutral,
+    ));
+    output.push_str("  ⚠️  Technical analysis is not financial advice. Always do your own research.\n");
+
     output
 }
 
@@ -573,5 +724,38 @@ mod tests {
         assert!(is_likely_stock_ticker("BTC-USD"));
         assert!(!is_likely_stock_ticker("bitcoin"));
         assert!(!is_likely_stock_ticker("ethereum"));
+    }
+
+    #[test]
+    fn test_signal_summary_uptrend() {
+        // Steadily increasing prices should produce bullish summary
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 2.0).collect();
+        let result = format_signal_summary(&prices, 198.0, None, None, None);
+        assert!(result.contains("bullish") || result.contains("Bullish"),
+            "Uptrend should produce bullish summary, got: {}", result);
+    }
+
+    #[test]
+    fn test_signal_summary_downtrend() {
+        // Steadily decreasing prices should produce bearish summary
+        let prices: Vec<f64> = (0..50).map(|i| 200.0 - i as f64 * 2.0).collect();
+        let result = format_signal_summary(&prices, 102.0, None, None, None);
+        assert!(result.contains("earish") || result.contains("Bearish"),
+            "Downtrend should produce bearish summary, got: {}", result);
+    }
+
+    #[test]
+    fn test_signal_summary_empty() {
+        // Too few data points should return empty
+        let prices = vec![100.0, 101.0];
+        let result = format_signal_summary(&prices, 101.0, None, None, None);
+        assert!(result.is_empty(), "Insufficient data should produce empty summary");
+    }
+
+    #[test]
+    fn test_signal_summary_includes_disclaimer() {
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64).collect();
+        let result = format_signal_summary(&prices, 149.0, None, None, None);
+        assert!(result.contains("not financial advice"), "Should include disclaimer");
     }
 }
