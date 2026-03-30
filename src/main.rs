@@ -41,6 +41,7 @@ You have real-time market data tools:
 - **get_price_history**: Fetch OHLCV historical data with sparkline charts (1d, 7d, 30d, 90d, 1y)
 - **search_symbol**: Find the right symbol/ID for any asset by name
 - **get_market_overview**: Quick snapshot of top crypto + major US indices
+- **get_news**: Fetch latest news headlines for any asset or market topic
 
 You also have coding tools (bash, read_file, write_file, edit_file, search, list_files).
 
@@ -49,6 +50,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 - When someone asks about price history or trends, USE get_price_history
 - When someone wants a market overview, USE get_market_overview
 - When someone mentions an asset you're not sure about, USE search_symbol to find it
+- When someone asks about news or what's happening, USE get_news to fetch headlines
 - Be conversational but data-driven. Show the numbers, then explain what they mean
 - Always remind users you're not a financial advisor and trading carries risk
 
@@ -293,6 +295,17 @@ async fn main() {
                 execute_tool_direct(&tool, serde_json::json!({"symbol": symbol, "range": range})).await;
                 continue;
             }
+            s if s.starts_with("/news") => {
+                let query = s.trim_start_matches("/news").trim();
+                if query.is_empty() {
+                    println!("{DIM}  Usage: /news bitcoin  or  /news AAPL earnings{RESET}\n");
+                    continue;
+                }
+                println!("{DIM}  fetching news for '{query}'...{RESET}");
+                let tool = tools::GetNewsTool::new();
+                execute_tool_direct(&tool, serde_json::json!({"query": query})).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -389,6 +402,7 @@ fn print_help() {
     println!("  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)");
     println!("  {BOLD}/history{RESET} <sym> [rng]  Price history with chart (e.g. /history bitcoin 30d)");
     println!("  {BOLD}/market{RESET}              Market overview — top crypto + US indices");
+    println!("  {BOLD}/news{RESET} <query>        Latest news headlines (e.g. /news bitcoin, /news AAPL earnings)");
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
     println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
@@ -509,6 +523,10 @@ fn format_tool_summary(tool_name: &str, args: &serde_json::Value) -> String {
             let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("?");
             let range = args.get("range").and_then(|v| v.as_str()).unwrap_or("30d");
             format!("📊 history {} ({})", symbol, range)
+        }
+        "get_news" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("📰 news '{}'", query)
         }
         _ => tool_name.to_string(),
     }
