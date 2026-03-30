@@ -90,20 +90,9 @@ async fn fetch_top_crypto(client: &Client, limit: usize) -> Result<String, Strin
         COINGECKO_BASE, limit
     );
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
+    let data = fetch_json_with_retry(client, &url).await?;
 
-    if !resp.status().is_success() {
-        return Err(format!("CoinGecko returned status {}", resp.status()));
-    }
-
-    let coins: Vec<Value> = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let coins = data.as_array().ok_or("Expected array from CoinGecko markets endpoint")?;
 
     if coins.is_empty() {
         return Ok("🪙 No crypto data available".into());
@@ -117,7 +106,7 @@ async fn fetch_top_crypto(client: &Client, limit: usize) -> Result<String, Strin
     ));
     output.push_str("─────────────────────────────────────────────────────────────\n");
 
-    for coin in &coins {
+    for coin in coins {
         let rank = coin["market_cap_rank"].as_u64().unwrap_or(0);
         let name = coin["name"].as_str().unwrap_or("?");
         let symbol = coin["symbol"].as_str().unwrap_or("?").to_uppercase();
@@ -187,20 +176,7 @@ async fn fetch_major_indices(client: &Client) -> Result<String, String> {
 async fn fetch_yahoo_index(client: &Client, symbol: &str) -> Result<(f64, f64), String> {
     let url = format!("{}/{}?range=1d&interval=5m", YAHOO_CHART_BASE, symbol);
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("status {}", resp.status()));
-    }
-
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("parse error: {}", e))?;
+    let data = fetch_json_with_retry(client, &url).await?;
 
     let meta = &data["chart"]["result"][0]["meta"];
     let price = meta["regularMarketPrice"]
