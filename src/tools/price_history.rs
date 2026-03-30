@@ -217,9 +217,17 @@ async fn fetch_coingecko_history(
     let prices_only: Vec<f64> = price_points.iter().map(|p| p.1).collect();
     output.push_str(&sparkline(&prices_only, 50));
 
+    // Estimate high/low arrays from close prices for indicators that need them.
+    // CoinGecko market_chart only provides close prices, not OHLC candles.
+    // We use adjacent-price windowed estimates: for each point, estimate
+    // high = max(current, neighbors) * slight factor, low = min(current, neighbors) * slight factor.
+    let (est_highs, est_lows) = estimate_high_low_from_closes(&prices_only);
+
     // Technical indicators (only if we have enough data)
     let vol_ref = if volume_points.is_empty() { None } else { Some(volume_points.as_slice()) };
-    output.push_str(&format_indicators(&prices_only, last_price, vol_ref, None, None));
+    let highs_ref = if est_highs.is_empty() { None } else { Some(est_highs.as_slice()) };
+    let lows_ref = if est_lows.is_empty() { None } else { Some(est_lows.as_slice()) };
+    output.push_str(&format_indicators(&prices_only, last_price, vol_ref, highs_ref, lows_ref));
 
     Ok(output)
 }
@@ -649,6 +657,38 @@ fn sparkline(prices: &[f64], width: usize) -> String {
     chart
 }
 
+/// Estimate high/low arrays from close-only price data.
+///
+/// CoinGecko's market_chart endpoint only returns close prices (not OHLC candles).
+/// To enable ATR and Stochastic calculations, we estimate highs and lows by looking
+/// at local neighborhoods. For each data point, we use the max/min of a small window
+/// around it. This is an approximation but gives reasonable results for trend-following
+/// indicators.
+fn estimate_high_low_from_closes(closes: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    if closes.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut highs = Vec::with_capacity(closes.len());
+    let mut lows = Vec::with_capacity(closes.len());
+
+    for i in 0..closes.len() {
+        let start = if i > 0 { i - 1 } else { 0 };
+        let end = if i + 1 < closes.len() { i + 1 } else { i };
+
+        let window = &closes[start..=end];
+        let local_max = window.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let local_min = window.iter().copied().fold(f64::INFINITY, f64::min);
+
+        // Add a small spread to make it more realistic (~0.5% typical crypto spread)
+        let spread_factor = 0.002;
+        highs.push(local_max * (1.0 + spread_factor));
+        lows.push(local_min * (1.0 - spread_factor));
+    }
+
+    (highs, lows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,5 +794,34 @@ mod tests {
         let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64).collect();
         let result = format_signal_summary(&prices, 149.0, None, None, None);
         assert!(result.contains("not financial advice"), "Should include disclaimer");
+    }
+
+    #[test]
+    fn test_estimate_high_low_from_closes() {
+        let closes = vec![100.0, 102.0, 98.0, 105.0, 103.0];
+        let (highs, lows) = estimate_high_low_from_closes(&closes);
+        assert_eq!(highs.len(), 5);
+        assert_eq!(lows.len(), 5);
+        // Highs should be >= closes, lows should be <= closes
+        for (i, &c) in closes.iter().enumerate() {
+            assert!(highs[i] >= c, "High {} should be >= close {} at index {}", highs[i], c, i);
+            assert!(lows[i] <= c, "Low {} should be <= close {} at index {}", lows[i], c, i);
+        }
+    }
+
+    #[test]
+    fn test_estimate_high_low_empty() {
+        let (highs, lows) = estimate_high_low_from_closes(&[]);
+        assert!(highs.is_empty());
+        assert!(lows.is_empty());
+    }
+
+    #[test]
+    fn test_estimate_high_low_single_point() {
+        let (highs, lows) = estimate_high_low_from_closes(&[100.0]);
+        assert_eq!(highs.len(), 1);
+        assert_eq!(lows.len(), 1);
+        assert!(highs[0] > 100.0);
+        assert!(lows[0] < 100.0);
     }
 }
