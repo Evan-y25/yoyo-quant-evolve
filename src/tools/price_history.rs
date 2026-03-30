@@ -504,6 +504,132 @@ fn format_indicators(
     output
 }
 
+/// Signal summary counts.
+#[derive(Debug, Clone)]
+pub struct SignalCounts {
+    pub bullish: u32,
+    pub bearish: u32,
+    pub neutral: u32,
+    pub verdict: String,
+    pub emoji: String,
+}
+
+/// Compute signal counts from price data (public for use by MTF analysis).
+pub fn compute_signal_counts(
+    prices: &[f64],
+    current_price: f64,
+    volumes: Option<&[f64]>,
+    highs: Option<&[f64]>,
+    lows: Option<&[f64]>,
+) -> Option<SignalCounts> {
+    if prices.len() < 15 {
+        return None;
+    }
+
+    let mut bullish: u32 = 0;
+    let mut bearish: u32 = 0;
+    let mut neutral: u32 = 0;
+
+    // SMA trend
+    if let (Some(sma7), Some(sma20)) = (indicators::sma(prices, 7), indicators::sma(prices, 20)) {
+        if current_price > sma7 && sma7 > sma20 {
+            bullish += 1;
+        } else if current_price < sma7 && sma7 < sma20 {
+            bearish += 1;
+        } else {
+            neutral += 1;
+        }
+    }
+
+    // RSI
+    if let Some(rsi_val) = indicators::rsi(prices, 14) {
+        if rsi_val >= 70.0 {
+            bearish += 1;
+        } else if rsi_val <= 30.0 {
+            bullish += 1;
+        } else if rsi_val >= 50.0 {
+            bullish += 1;
+        } else {
+            bearish += 1;
+        }
+    }
+
+    // MACD
+    if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
+        if macd_result.histogram > 0.0 {
+            bullish += 1;
+        } else if macd_result.histogram < 0.0 {
+            bearish += 1;
+        } else {
+            neutral += 1;
+        }
+    }
+
+    // Bollinger Bands
+    if let Some(bb) = indicators::bollinger_bands(prices, 20, 2.0) {
+        if bb.percent_b > 0.8 {
+            bearish += 1;
+        } else if bb.percent_b < 0.2 {
+            bullish += 1;
+        } else if bb.percent_b > 0.5 {
+            bullish += 1;
+        } else {
+            bearish += 1;
+        }
+    }
+
+    // VWAP
+    if let Some(vols) = volumes {
+        if let Some(vwap_val) = indicators::vwap(prices, vols) {
+            if current_price > vwap_val * 1.005 {
+                bullish += 1;
+            } else if current_price < vwap_val * 0.995 {
+                bearish += 1;
+            } else {
+                neutral += 1;
+            }
+        }
+    }
+
+    // Stochastic
+    if let (Some(h), Some(l)) = (highs, lows) {
+        if let Some(stoch) = indicators::stochastic(h, l, prices, 14, 3) {
+            if stoch.k >= 80.0 {
+                bearish += 1;
+            } else if stoch.k <= 20.0 || stoch.k > stoch.d {
+                bullish += 1;
+            } else {
+                bearish += 1;
+            }
+        }
+    }
+
+    let total = bullish + bearish + neutral;
+    if total == 0 {
+        return None;
+    }
+
+    let (emoji, verdict) = if bullish > bearish + 1 {
+        ("🟢", "Bullish")
+    } else if bearish > bullish + 1 {
+        ("🔴", "Bearish")
+    } else if bullish > bearish {
+        ("🟢", "Slightly Bullish")
+    } else if bearish > bullish {
+        ("🔴", "Slightly Bearish")
+    } else {
+        ("⚪", "Neutral / Mixed")
+    };
+
+    Some(SignalCounts {
+        bullish,
+        bearish,
+        neutral,
+        verdict: verdict.to_string(),
+        emoji: emoji.to_string(),
+    })
+}
+
 /// Aggregate all indicators into a single bullish/bearish/neutral signal.
 /// Counts the number of bullish vs bearish signals from each indicator.
 fn format_signal_summary(
@@ -890,5 +1016,36 @@ mod tests {
         assert_eq!(lows.len(), 1);
         assert!(highs[0] > 100.0);
         assert!(lows[0] < 100.0);
+    }
+
+    #[test]
+    fn test_compute_signal_counts_uptrend() {
+        // Gradually increasing prices — not too extreme
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let current = *prices.last().unwrap();
+        let result = compute_signal_counts(&prices, current, None, None, None);
+        assert!(result.is_some());
+        let s = result.unwrap();
+        // With a mild uptrend + some noise, SMA should be bullish
+        // We just verify the function returns something reasonable
+        assert!(s.bullish + s.bearish + s.neutral > 0, "Should have at least one signal");
+    }
+
+    #[test]
+    fn test_compute_signal_counts_downtrend() {
+        // Gradually decreasing prices
+        let prices: Vec<f64> = (0..50).map(|i| 200.0 - i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let current = *prices.last().unwrap();
+        let result = compute_signal_counts(&prices, current, None, None, None);
+        assert!(result.is_some());
+        let s = result.unwrap();
+        assert!(s.bullish + s.bearish + s.neutral > 0, "Should have at least one signal");
+    }
+
+    #[test]
+    fn test_compute_signal_counts_insufficient_data() {
+        let prices = vec![100.0, 101.0, 102.0];
+        let result = compute_signal_counts(&prices, 102.0, None, None, None);
+        assert!(result.is_none());
     }
 }

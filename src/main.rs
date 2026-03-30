@@ -376,6 +376,10 @@ async fn main() {
                 handle_correlate_command(s).await;
                 continue;
             }
+            s if s.starts_with("/mtf ") => {
+                handle_mtf_command(s).await;
+                continue;
+            }
             s if s.starts_with("/alert") => {
                 handle_alert_command(s).await;
                 continue;
@@ -1390,6 +1394,131 @@ async fn fetch_yahoo_price_series(
     Ok(closes)
 }
 
+/// Handle /mtf (multi-timeframe) command.
+///
+/// Fetches 7d, 30d, and 90d data, computes signal summary for each,
+/// and shows alignment across timeframes.
+async fn handle_mtf_command(input: &str) {
+    let args = input.trim_start_matches("/mtf").trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.is_empty() {
+        println!("{DIM}  Usage: /mtf <symbol>{RESET}");
+        println!("{DIM}  Example: /mtf bitcoin{RESET}");
+        println!("{DIM}  Example: /mtf AAPL{RESET}");
+        println!("{DIM}  Analyzes 7d, 30d, and 90d timeframes together.{RESET}\n");
+        return;
+    }
+
+    let symbol = parts[0];
+    println!("{DIM}  Fetching multi-timeframe data for {symbol}...{RESET}");
+
+    // Fetch all three timeframes concurrently
+    let (res_7d, res_30d, res_90d) = tokio::join!(
+        fetch_price_series(symbol, "7d"),
+        fetch_price_series(symbol, "30d"),
+        fetch_price_series(symbol, "90d"),
+    );
+
+    println!();
+    println!("{BOLD}{CYAN}  📊 Multi-Timeframe Analysis: {symbol}{RESET}");
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+
+    let mut timeframe_results: Vec<(&str, Option<tools::SignalCounts>)> = Vec::new();
+
+    for (label, result) in [("7d", res_7d), ("30d", res_30d), ("90d", res_90d)] {
+        match result {
+            Ok(prices) => {
+                if prices.is_empty() {
+                    println!("  {label:>4}: ❌ No data");
+                    timeframe_results.push((label, None));
+                    continue;
+                }
+                let current_price = *prices.last().unwrap();
+                let change = if prices[0] > 0.0 {
+                    ((current_price - prices[0]) / prices[0]) * 100.0
+                } else {
+                    0.0
+                };
+
+                let signal = tools::compute_signal_counts(
+                    &prices,
+                    current_price,
+                    None,
+                    None,
+                    None,
+                );
+
+                if let Some(ref s) = signal {
+                    println!(
+                        "  {label:>4}: {} {} ({} bull, {} bear, {} neutral) | {}{:.2}%",
+                        s.emoji,
+                        s.verdict,
+                        s.bullish,
+                        s.bearish,
+                        s.neutral,
+                        if change >= 0.0 { "+" } else { "" },
+                        change,
+                    );
+                } else {
+                    println!("  {label:>4}: ⚪ Insufficient data for signals | {}{:.2}%",
+                        if change >= 0.0 { "+" } else { "" },
+                        change);
+                }
+                timeframe_results.push((label, signal));
+            }
+            Err(e) => {
+                println!("  {label:>4}: ❌ {e}");
+                timeframe_results.push((label, None));
+            }
+        }
+    }
+
+    // Compute alignment score
+    let valid_signals: Vec<&tools::SignalCounts> = timeframe_results
+        .iter()
+        .filter_map(|(_, s)| s.as_ref())
+        .collect();
+
+    if valid_signals.len() >= 2 {
+        println!("{DIM}  ─────────────────────────────────────────{RESET}");
+
+        let all_bullish = valid_signals.iter().all(|s| s.bullish > s.bearish);
+        let all_bearish = valid_signals.iter().all(|s| s.bearish > s.bullish);
+        let total_bullish: u32 = valid_signals.iter().map(|s| s.bullish).sum();
+        let total_bearish: u32 = valid_signals.iter().map(|s| s.bearish).sum();
+
+        if all_bullish {
+            println!("  🟢 ALL TIMEFRAMES BULLISH — Strong trend alignment");
+            println!("  📊 Combined: {} bullish vs {} bearish across all timeframes", total_bullish, total_bearish);
+        } else if all_bearish {
+            println!("  🔴 ALL TIMEFRAMES BEARISH — Strong trend alignment");
+            println!("  📊 Combined: {} bearish vs {} bullish across all timeframes", total_bearish, total_bullish);
+        } else {
+            // Mixed — look for divergence
+            let short_bullish = valid_signals.first().map(|s| s.bullish > s.bearish).unwrap_or(false);
+            let long_bearish = valid_signals.last().map(|s| s.bearish > s.bullish).unwrap_or(false);
+            let short_bearish = valid_signals.first().map(|s| s.bearish > s.bullish).unwrap_or(false);
+            let long_bullish = valid_signals.last().map(|s| s.bullish > s.bearish).unwrap_or(false);
+
+            if short_bullish && long_bearish {
+                println!("  🟡 DIVERGENCE: Short-term bullish, long-term bearish");
+                println!("  💡 Could be a dead-cat bounce or early reversal. Caution advised.");
+            } else if short_bearish && long_bullish {
+                println!("  🟡 DIVERGENCE: Short-term bearish, long-term bullish");
+                println!("  💡 Possible pullback in an uptrend. Watch for buying opportunity.");
+            } else {
+                println!("  ⚪ MIXED SIGNALS across timeframes");
+                println!("  📊 Combined: {} bullish, {} bearish", total_bullish, total_bearish);
+            }
+        }
+    }
+
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("{DIM}  Multi-timeframe convergence = stronger signal.{RESET}");
+    println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -1403,6 +1532,7 @@ fn print_help() {
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
     println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
     println!("  {BOLD}/correlate{RESET} <a> <b> [range]  Correlation analysis between two assets");
+    println!("  {BOLD}/mtf{RESET} <symbol>        Multi-timeframe analysis (7d + 30d + 90d)");
     println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
     println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
     println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");

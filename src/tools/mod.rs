@@ -20,6 +20,7 @@ pub use crypto::GetPriceTool;
 pub use market_overview::GetMarketOverviewTool;
 pub use news::GetNewsTool;
 pub use price_history::GetPriceHistoryTool;
+pub use price_history::{compute_signal_counts, SignalCounts};
 pub use search_symbol::SearchSymbolTool;
 
 use yoagent::types::AgentTool;
