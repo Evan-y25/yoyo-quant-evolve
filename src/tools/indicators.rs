@@ -34,9 +34,11 @@ pub fn ema(prices: &[f64], period: usize) -> Option<f64> {
 }
 
 /// Calculate Relative Strength Index (RSI) for a given period (typically 14).
+///
 /// Returns a value between 0-100.
 /// - Above 70: overbought
 /// - Below 30: oversold
+///
 /// Returns None if there aren't enough data points.
 pub fn rsi(prices: &[f64], period: usize) -> Option<f64> {
     if prices.len() < period + 1 || period == 0 {
@@ -888,7 +890,7 @@ mod tests {
         assert!(result.is_some(), "Should detect support/resistance levels");
         let (supports, resistances) = result.unwrap();
         // Should find some levels
-        assert!(supports.len() > 0 || resistances.len() > 0, "Should find at least one level");
+        assert!(!supports.is_empty() || !resistances.is_empty(), "Should find at least one level");
     }
 
     #[test]

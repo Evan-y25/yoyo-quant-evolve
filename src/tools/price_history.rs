@@ -553,10 +553,7 @@ fn format_signal_summary(
             if stoch.k >= 80.0 {
                 bearish += 1;
                 signals.push(("Stoch", "🔴"));
-            } else if stoch.k <= 20.0 {
-                bullish += 1;
-                signals.push(("Stoch", "🟢"));
-            } else if stoch.k > stoch.d {
+            } else if stoch.k <= 20.0 || stoch.k > stoch.d {
                 bullish += 1;
                 signals.push(("Stoch", "🟢"));
             } else {

@@ -58,6 +58,7 @@ impl Watchlist {
     }
 
     /// Check if a symbol is in the watchlist.
+    #[allow(dead_code)]
     pub fn contains(&self, symbol: &str) -> bool {
         let normalized = normalize_symbol(symbol);
         self.symbols.contains(&normalized)
