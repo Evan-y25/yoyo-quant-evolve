@@ -230,55 +230,9 @@ impl AlertManager {
     }
 }
 
-/// Get current timestamp (reuse from portfolio's approach).
+/// Get current timestamp (delegates to shared format module).
 fn current_timestamp() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let secs_per_day = 86400u64;
-    let days_since_epoch = now / secs_per_day;
-    let remaining_secs = now % secs_per_day;
-    let hours = remaining_secs / 3600;
-    let mins = (remaining_secs % 3600) / 60;
-
-    let mut year = 1970u64;
-    let mut remaining_days = days_since_epoch;
-
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    let month_days = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1u64;
-    for &days in &month_days {
-        if remaining_days < days {
-            break;
-        }
-        remaining_days -= days;
-        month += 1;
-    }
-    let day = remaining_days + 1;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}Z",
-        year, month, day, hours, mins
-    )
-}
-
-fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    super::format::current_timestamp()
 }
 
 #[cfg(test)]
