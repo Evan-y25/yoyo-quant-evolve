@@ -1021,25 +1021,35 @@ mod tests {
     #[test]
     fn test_compute_signal_counts_uptrend() {
         // Gradually increasing prices — not too extreme
-        let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let prices: Vec<f64> = (0..50)
+            .map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0)
+            .collect();
         let current = *prices.last().unwrap();
         let result = compute_signal_counts(&prices, current, None, None, None);
         assert!(result.is_some());
         let s = result.unwrap();
         // With a mild uptrend + some noise, SMA should be bullish
         // We just verify the function returns something reasonable
-        assert!(s.bullish + s.bearish + s.neutral > 0, "Should have at least one signal");
+        assert!(
+            s.bullish + s.bearish + s.neutral > 0,
+            "Should have at least one signal"
+        );
     }
 
     #[test]
     fn test_compute_signal_counts_downtrend() {
         // Gradually decreasing prices
-        let prices: Vec<f64> = (0..50).map(|i| 200.0 - i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let prices: Vec<f64> = (0..50)
+            .map(|i| 200.0 - i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0)
+            .collect();
         let current = *prices.last().unwrap();
         let result = compute_signal_counts(&prices, current, None, None, None);
         assert!(result.is_some());
         let s = result.unwrap();
-        assert!(s.bullish + s.bearish + s.neutral > 0, "Should have at least one signal");
+        assert!(
+            s.bullish + s.bearish + s.neutral > 0,
+            "Should have at least one signal"
+        );
     }
 
     #[test]

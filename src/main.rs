@@ -1264,10 +1264,18 @@ async fn handle_correlate_command(input: &str) {
     println!("  Data points: {min_len}");
 
     if let Some(r) = corr_price {
-        println!("  Price correlation:  {:.4} {}", r, tools::indicators::correlation_signal(r));
+        println!(
+            "  Price correlation:  {:.4} {}",
+            r,
+            tools::indicators::correlation_signal(r)
+        );
     }
     if let Some(r) = corr_returns {
-        println!("  Return correlation: {:.4} {}", r, tools::indicators::correlation_signal(r));
+        println!(
+            "  Return correlation: {:.4} {}",
+            r,
+            tools::indicators::correlation_signal(r)
+        );
     }
 
     // Performance comparison
@@ -1324,7 +1332,7 @@ async fn fetch_coingecko_price_series(
     range: &str,
 ) -> Result<Vec<f64>, String> {
     use tools::http::fetch_json_with_retry;
-    
+
     let days = match range {
         "1d" => "1",
         "7d" => "7",
@@ -1361,7 +1369,7 @@ async fn fetch_yahoo_price_series(
     range: &str,
 ) -> Result<Vec<f64>, String> {
     use tools::http::fetch_json_with_retry;
-    
+
     let (yahoo_range, interval) = match range {
         "1d" => ("1d", "5m"),
         "7d" => ("5d", "1h"),
@@ -1441,13 +1449,7 @@ async fn handle_mtf_command(input: &str) {
                     0.0
                 };
 
-                let signal = tools::compute_signal_counts(
-                    &prices,
-                    current_price,
-                    None,
-                    None,
-                    None,
-                );
+                let signal = tools::compute_signal_counts(&prices, current_price, None, None, None);
 
                 if let Some(ref s) = signal {
                     println!(
@@ -1461,9 +1463,11 @@ async fn handle_mtf_command(input: &str) {
                         change,
                     );
                 } else {
-                    println!("  {label:>4}: ⚪ Insufficient data for signals | {}{:.2}%",
+                    println!(
+                        "  {label:>4}: ⚪ Insufficient data for signals | {}{:.2}%",
                         if change >= 0.0 { "+" } else { "" },
-                        change);
+                        change
+                    );
                 }
                 timeframe_results.push((label, signal));
             }
@@ -1490,16 +1494,34 @@ async fn handle_mtf_command(input: &str) {
 
         if all_bullish {
             println!("  🟢 ALL TIMEFRAMES BULLISH — Strong trend alignment");
-            println!("  📊 Combined: {} bullish vs {} bearish across all timeframes", total_bullish, total_bearish);
+            println!(
+                "  📊 Combined: {} bullish vs {} bearish across all timeframes",
+                total_bullish, total_bearish
+            );
         } else if all_bearish {
             println!("  🔴 ALL TIMEFRAMES BEARISH — Strong trend alignment");
-            println!("  📊 Combined: {} bearish vs {} bullish across all timeframes", total_bearish, total_bullish);
+            println!(
+                "  📊 Combined: {} bearish vs {} bullish across all timeframes",
+                total_bearish, total_bullish
+            );
         } else {
             // Mixed — look for divergence
-            let short_bullish = valid_signals.first().map(|s| s.bullish > s.bearish).unwrap_or(false);
-            let long_bearish = valid_signals.last().map(|s| s.bearish > s.bullish).unwrap_or(false);
-            let short_bearish = valid_signals.first().map(|s| s.bearish > s.bullish).unwrap_or(false);
-            let long_bullish = valid_signals.last().map(|s| s.bullish > s.bearish).unwrap_or(false);
+            let short_bullish = valid_signals
+                .first()
+                .map(|s| s.bullish > s.bearish)
+                .unwrap_or(false);
+            let long_bearish = valid_signals
+                .last()
+                .map(|s| s.bearish > s.bullish)
+                .unwrap_or(false);
+            let short_bearish = valid_signals
+                .first()
+                .map(|s| s.bearish > s.bullish)
+                .unwrap_or(false);
+            let long_bullish = valid_signals
+                .last()
+                .map(|s| s.bullish > s.bearish)
+                .unwrap_or(false);
 
             if short_bullish && long_bearish {
                 println!("  🟡 DIVERGENCE: Short-term bullish, long-term bearish");
@@ -1509,7 +1531,10 @@ async fn handle_mtf_command(input: &str) {
                 println!("  💡 Possible pullback in an uptrend. Watch for buying opportunity.");
             } else {
                 println!("  ⚪ MIXED SIGNALS across timeframes");
-                println!("  📊 Combined: {} bullish, {} bearish", total_bullish, total_bearish);
+                println!(
+                    "  📊 Combined: {} bullish, {} bearish",
+                    total_bullish, total_bearish
+                );
             }
         }
     }

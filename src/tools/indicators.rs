@@ -1260,7 +1260,10 @@ mod tests {
         let r = returns(&prices);
         assert_eq!(r.len(), 3);
         assert!((r[0] - 0.10).abs() < 0.0001, "First return should be +10%");
-        assert!((r[1] - (-0.10)).abs() < 0.0001, "Second return should be -10%");
+        assert!(
+            (r[1] - (-0.10)).abs() < 0.0001,
+            "Second return should be -10%"
+        );
     }
 
     #[test]
