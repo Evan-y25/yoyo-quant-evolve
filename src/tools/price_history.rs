@@ -360,6 +360,20 @@ fn format_indicators(prices: &[f64], current_price: f64) -> String {
         ));
     }
 
+    // MACD (standard 12/26/9)
+    if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
+        output.push_str(&format!(
+            "  MACD:     {:.4} | Signal: {:.4} | Hist: {:.4}\n",
+            macd_result.macd_line,
+            macd_result.signal_line,
+            macd_result.histogram,
+        ));
+        output.push_str(&format!(
+            "  MACD:     {}\n",
+            indicators::macd_signal(&macd_result)
+        ));
+    }
+
     output
 }
 

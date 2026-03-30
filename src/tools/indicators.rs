@@ -113,6 +113,103 @@ pub fn sma_signal(price: f64, short_sma: f64, long_sma: f64) -> &'static str {
     }
 }
 
+/// MACD result containing the three components traders look at.
+#[derive(Debug, Clone)]
+pub struct MacdResult {
+    /// MACD line: EMA(fast) - EMA(slow)
+    pub macd_line: f64,
+    /// Signal line: EMA(signal_period) of MACD line
+    pub signal_line: f64,
+    /// Histogram: MACD line - Signal line
+    pub histogram: f64,
+}
+
+/// Calculate MACD (Moving Average Convergence Divergence).
+///
+/// Standard parameters: fast=12, slow=26, signal=9.
+/// Returns None if there aren't enough data points (need at least `slow` prices).
+///
+/// The MACD is one of the most popular momentum indicators:
+/// - MACD line crossing above signal line → bullish
+/// - MACD line crossing below signal line → bearish
+/// - Histogram growing → momentum increasing
+/// - Histogram shrinking → momentum fading
+pub fn macd(prices: &[f64], fast: usize, slow: usize, signal_period: usize) -> Option<MacdResult> {
+    if prices.len() < slow || fast == 0 || slow == 0 || signal_period == 0 || fast >= slow {
+        return None;
+    }
+
+    // Calculate MACD line at each point: EMA(fast) - EMA(slow)
+    // We need enough points to compute both EMAs and then the signal EMA
+    let multiplier_fast = 2.0 / (fast as f64 + 1.0);
+    let multiplier_slow = 2.0 / (slow as f64 + 1.0);
+
+    // For the signal line, we need a series of MACD values.
+    // Build MACD line series starting from index `slow-1` (first point where both EMAs exist).
+    let mut macd_series = Vec::new();
+
+    // Re-compute from the start to get the MACD series
+    // Fast EMA starts at index fast, slow EMA starts at index slow
+    // We begin tracking MACD from index slow (when both exist)
+
+    // Compute fast EMA up to index slow-1
+    let mut fast_ema_series = prices[..fast].iter().sum::<f64>() / fast as f64;
+    for &price in &prices[fast..slow] {
+        fast_ema_series = (price - fast_ema_series) * multiplier_fast + fast_ema_series;
+    }
+    let mut slow_ema_series = prices[..slow].iter().sum::<f64>() / slow as f64;
+
+    // First MACD value
+    macd_series.push(fast_ema_series - slow_ema_series);
+
+    // Continue from index slow onward
+    for &price in &prices[slow..] {
+        fast_ema_series = (price - fast_ema_series) * multiplier_fast + fast_ema_series;
+        slow_ema_series = (price - slow_ema_series) * multiplier_slow + slow_ema_series;
+        macd_series.push(fast_ema_series - slow_ema_series);
+    }
+
+    if macd_series.len() < signal_period {
+        return None;
+    }
+
+    // Calculate signal line: EMA of MACD series
+    let multiplier_signal = 2.0 / (signal_period as f64 + 1.0);
+    let initial_signal: f64 = macd_series[..signal_period].iter().sum::<f64>() / signal_period as f64;
+    let mut signal = initial_signal;
+    for &m in &macd_series[signal_period..] {
+        signal = (m - signal) * multiplier_signal + signal;
+    }
+
+    let macd_line = *macd_series.last().unwrap();
+    let histogram = macd_line - signal;
+
+    Some(MacdResult {
+        macd_line,
+        signal_line: signal,
+        histogram,
+    })
+}
+
+/// Interpret MACD as a human-readable signal.
+pub fn macd_signal(result: &MacdResult) -> &'static str {
+    if result.macd_line > result.signal_line && result.histogram > 0.0 {
+        if result.macd_line > 0.0 {
+            "🟢 Bullish (MACD above signal, both positive)"
+        } else {
+            "🟡 Turning bullish (MACD crossing above signal)"
+        }
+    } else if result.macd_line < result.signal_line && result.histogram < 0.0 {
+        if result.macd_line < 0.0 {
+            "🔴 Bearish (MACD below signal, both negative)"
+        } else {
+            "🟡 Turning bearish (MACD crossing below signal)"
+        }
+    } else {
+        "⚪ Neutral (near crossover)"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +300,63 @@ mod tests {
     fn test_sma_signal_bearish() {
         let signal = sma_signal(90.0, 95.0, 100.0);
         assert!(signal.contains("Bearish"));
+    }
+
+    #[test]
+    fn test_macd_uptrend() {
+        // Steadily increasing prices — MACD should be positive
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 2.0).collect();
+        let result = macd(&prices, 12, 26, 9);
+        assert!(result.is_some(), "MACD should compute with 50 data points");
+        let r = result.unwrap();
+        assert!(r.macd_line > 0.0, "MACD line should be positive in uptrend, got {}", r.macd_line);
+        assert!(r.histogram > 0.0 || r.histogram.abs() < 1.0, "Histogram should be positive or near zero in steady uptrend");
+    }
+
+    #[test]
+    fn test_macd_downtrend() {
+        // Steadily decreasing prices — MACD should be negative
+        let prices: Vec<f64> = (0..50).map(|i| 200.0 - i as f64 * 2.0).collect();
+        let result = macd(&prices, 12, 26, 9);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!(r.macd_line < 0.0, "MACD line should be negative in downtrend, got {}", r.macd_line);
+    }
+
+    #[test]
+    fn test_macd_insufficient_data() {
+        let prices = vec![10.0, 20.0, 30.0];
+        assert!(macd(&prices, 12, 26, 9).is_none());
+    }
+
+    #[test]
+    fn test_macd_invalid_params() {
+        let prices: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        // fast >= slow should return None
+        assert!(macd(&prices, 26, 12, 9).is_none());
+        // zero params
+        assert!(macd(&prices, 0, 26, 9).is_none());
+    }
+
+    #[test]
+    fn test_macd_signal_interpretation() {
+        // Bullish: MACD above signal, positive
+        let bullish = MacdResult { macd_line: 5.0, signal_line: 3.0, histogram: 2.0 };
+        assert!(macd_signal(&bullish).contains("Bullish"));
+
+        // Bearish: MACD below signal, negative
+        let bearish = MacdResult { macd_line: -5.0, signal_line: -3.0, histogram: -2.0 };
+        assert!(macd_signal(&bearish).contains("Bearish"));
+    }
+
+    #[test]
+    fn test_macd_components_consistent() {
+        let prices: Vec<f64> = (0..50).map(|i| 100.0 + (i as f64 * 0.5).sin() * 10.0).collect();
+        let result = macd(&prices, 12, 26, 9);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        // histogram = macd_line - signal_line
+        let expected_hist = r.macd_line - r.signal_line;
+        assert!((r.histogram - expected_hist).abs() < 0.0001, "Histogram should equal MACD - Signal");
     }
 }
