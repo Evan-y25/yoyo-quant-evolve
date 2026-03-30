@@ -70,6 +70,16 @@ pub fn change_dot(change_pct: f64) -> &'static str {
     if change_pct >= 0.0 { "🟢" } else { "🔴" }
 }
 
+/// Heuristic: stock tickers are 1-5 uppercase letters, or contain special chars like ^ or .
+/// Used by multiple tools to decide whether to query Yahoo Finance vs CoinGecko.
+pub fn is_likely_stock_ticker(s: &str) -> bool {
+    let s = s.trim();
+    if s.starts_with('^') || s.contains('.') || s.contains('-') {
+        return true;
+    }
+    s.len() <= 5 && s.chars().all(|c| c.is_ascii_uppercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +174,18 @@ mod tests {
     fn test_change_dot() {
         assert_eq!(change_dot(5.0), "🟢");
         assert_eq!(change_dot(-5.0), "🔴");
+    }
+
+    #[test]
+    fn test_is_likely_stock_ticker() {
+        assert!(is_likely_stock_ticker("AAPL"));
+        assert!(is_likely_stock_ticker("MSFT"));
+        assert!(is_likely_stock_ticker("TSLA"));
+        assert!(is_likely_stock_ticker("^GSPC"));
+        assert!(is_likely_stock_ticker("BRK.B"));
+        assert!(is_likely_stock_ticker("BTC-USD"));
+        assert!(!is_likely_stock_ticker("bitcoin"));
+        assert!(!is_likely_stock_ticker("ethereum"));
+        assert!(!is_likely_stock_ticker("solana"));
     }
 }

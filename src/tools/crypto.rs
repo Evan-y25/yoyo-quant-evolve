@@ -8,7 +8,7 @@ use reqwest::Client;
 use serde_json::Value;
 use yoagent::types::*;
 
-use super::format::{change_emoji, format_change, format_large_number_usd, format_price};
+use super::format::{change_emoji, format_change, format_large_number_usd, format_price, is_likely_stock_ticker};
 use super::http::{create_client, fetch_json_with_retry};
 
 const COINGECKO_BASE: &str = "https://api.coingecko.com/api/v3";
@@ -104,15 +104,6 @@ impl AgentTool for GetPriceTool {
             Err(e) => Err(ToolError::Failed(format!("Failed to fetch price: {}", e))),
         }
     }
-}
-
-/// Heuristic: stock tickers are 1-5 uppercase letters, or contain special chars like ^ or .
-fn is_likely_stock_ticker(s: &str) -> bool {
-    let s = s.trim();
-    if s.starts_with('^') || s.contains('.') || s.contains('-') {
-        return true;
-    }
-    s.len() <= 5 && s.chars().all(|c| c.is_ascii_uppercase())
 }
 
 async fn fetch_coingecko_price(client: &Client, coin_id: &str) -> Result<String, String> {

@@ -11,7 +11,7 @@ use reqwest::Client;
 use serde_json::Value;
 use yoagent::types::*;
 
-use super::format::{format_change, format_large_number_usd, format_price};
+use super::format::{format_change, format_large_number_usd, format_price, is_likely_stock_ticker};
 use super::http::{create_client, fetch_json_with_retry};
 use super::indicators;
 
@@ -114,15 +114,6 @@ impl AgentTool for GetPriceHistoryTool {
             Err(e) => Err(ToolError::Failed(format!("Failed to fetch price history: {}", e))),
         }
     }
-}
-
-/// Heuristic: stock tickers are 1-5 uppercase letters, or contain special chars like ^ or .
-fn is_likely_stock_ticker(s: &str) -> bool {
-    let s = s.trim();
-    if s.starts_with('^') || s.contains('.') || s.contains('-') {
-        return true;
-    }
-    s.len() <= 5 && s.chars().all(|c| c.is_ascii_uppercase())
 }
 
 /// Map our range strings to CoinGecko days parameter.
