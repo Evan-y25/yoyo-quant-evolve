@@ -646,7 +646,9 @@ async fn handle_portfolio_command(input: &str) {
             let side = parts[0];
             if parts.len() < 3 {
                 println!("{DIM}  Usage: /pf {side} <symbol> <quantity> [price] [reason]{RESET}");
-                println!("{DIM}  Example: /pf buy bitcoin 0.5          (auto-fetches live price){RESET}");
+                println!(
+                    "{DIM}  Example: /pf buy bitcoin 0.5          (auto-fetches live price){RESET}"
+                );
                 println!("{DIM}  Example: /pf buy bitcoin 0.5 87000    (manual price){RESET}");
                 println!("{DIM}  Example: /pf buy AAPL 10 BTC looks bullish  (auto-price + reason){RESET}\n");
                 return;
@@ -732,7 +734,11 @@ async fn handle_portfolio_command(input: &str) {
             } else {
                 // Look up the symbol from the trade and auto-fetch
                 let portfolio = tools::portfolio::Portfolio::load();
-                let trade = match portfolio.trades.iter().find(|t| t.id == trade_id && t.is_open()) {
+                let trade = match portfolio
+                    .trades
+                    .iter()
+                    .find(|t| t.id == trade_id && t.is_open())
+                {
                     Some(t) => t,
                     None => {
                         println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
@@ -765,6 +771,162 @@ async fn handle_portfolio_command(input: &str) {
                 Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
             }
         }
+        Some("sl") | Some("stoploss") | Some("stop-loss") => {
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /pf sl <trade_id> <price>{RESET}");
+                println!("{DIM}  Example: /pf sl 1 85000{RESET}");
+                println!("{DIM}  Use /pf sl <trade_id> off to remove{RESET}\n");
+                return;
+            }
+            let trade_id: u32 = match parts[1].trim_start_matches('#').parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("{RED}  Error: trade_id must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let mut portfolio = tools::portfolio::Portfolio::load();
+            if parts[2] == "off" || parts[2] == "none" || parts[2] == "remove" {
+                match portfolio
+                    .trades
+                    .iter_mut()
+                    .find(|t| t.id == trade_id && t.is_open())
+                {
+                    Some(t) => {
+                        t.stop_loss = None;
+                    }
+                    None => {
+                        println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
+                        return;
+                    }
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Stop-loss removed from trade #{trade_id}{RESET}\n");
+            } else {
+                let sl: f64 = match parts[2].parse() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        println!("{RED}  Error: price must be a number{RESET}\n");
+                        return;
+                    }
+                };
+                // Extract trade info and validate, then set SL
+                let (entry_price, side, quantity) = {
+                    let trade = match portfolio
+                        .trades
+                        .iter()
+                        .find(|t| t.id == trade_id && t.is_open())
+                    {
+                        Some(t) => t,
+                        None => {
+                            println!(
+                                "{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n"
+                            );
+                            return;
+                        }
+                    };
+                    (trade.entry_price, trade.side.clone(), trade.quantity)
+                };
+                if side == "buy" && sl >= entry_price {
+                    println!("{RED}  Error: Stop-loss must be below entry price ${entry_price:.2} for a buy{RESET}\n");
+                    return;
+                }
+                if side == "sell" && sl <= entry_price {
+                    println!("{RED}  Error: Stop-loss must be above entry price ${entry_price:.2} for a short{RESET}\n");
+                    return;
+                }
+                if let Some(trade) = portfolio.trades.iter_mut().find(|t| t.id == trade_id) {
+                    trade.stop_loss = Some(sl);
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                let risk = (entry_price - sl).abs() * quantity;
+                println!("{GREEN}  ✓ Stop-loss set on trade #{trade_id}: ${sl:.2} (risk: ${risk:.2}){RESET}\n");
+            }
+        }
+        Some("tp") | Some("takeprofit") | Some("take-profit") => {
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /pf tp <trade_id> <price>{RESET}");
+                println!("{DIM}  Example: /pf tp 1 100000{RESET}");
+                println!("{DIM}  Use /pf tp <trade_id> off to remove{RESET}\n");
+                return;
+            }
+            let trade_id: u32 = match parts[1].trim_start_matches('#').parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("{RED}  Error: trade_id must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let mut portfolio = tools::portfolio::Portfolio::load();
+            if parts[2] == "off" || parts[2] == "none" || parts[2] == "remove" {
+                match portfolio
+                    .trades
+                    .iter_mut()
+                    .find(|t| t.id == trade_id && t.is_open())
+                {
+                    Some(t) => {
+                        t.take_profit = None;
+                    }
+                    None => {
+                        println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
+                        return;
+                    }
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Take-profit removed from trade #{trade_id}{RESET}\n");
+            } else {
+                let tp: f64 = match parts[2].parse() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        println!("{RED}  Error: price must be a number{RESET}\n");
+                        return;
+                    }
+                };
+                // Extract trade info and validate, then set TP
+                let (entry_price, side, quantity) = {
+                    let trade = match portfolio
+                        .trades
+                        .iter()
+                        .find(|t| t.id == trade_id && t.is_open())
+                    {
+                        Some(t) => t,
+                        None => {
+                            println!(
+                                "{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n"
+                            );
+                            return;
+                        }
+                    };
+                    (trade.entry_price, trade.side.clone(), trade.quantity)
+                };
+                if side == "buy" && tp <= entry_price {
+                    println!("{RED}  Error: Take-profit must be above entry price ${entry_price:.2} for a buy{RESET}\n");
+                    return;
+                }
+                if side == "sell" && tp >= entry_price {
+                    println!("{RED}  Error: Take-profit must be below entry price ${entry_price:.2} for a short{RESET}\n");
+                    return;
+                }
+                if let Some(trade) = portfolio.trades.iter_mut().find(|t| t.id == trade_id) {
+                    trade.take_profit = Some(tp);
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                let reward = (tp - entry_price).abs() * quantity;
+                println!("{GREEN}  ✓ Take-profit set on trade #{trade_id}: ${tp:.2} (target: +${reward:.2}){RESET}\n");
+            }
+        }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
             if let Err(e) = portfolio.save() {
@@ -785,7 +947,8 @@ async fn handle_portfolio_command(input: &str) {
                 // Fetch live prices for open positions
                 println!("{DIM}  Fetching live prices for open positions...{RESET}");
                 let symbols: Vec<String> = open.iter().map(|t| t.symbol.clone()).collect();
-                let unique_symbols: std::collections::HashSet<String> = symbols.into_iter().collect();
+                let unique_symbols: std::collections::HashSet<String> =
+                    symbols.into_iter().collect();
 
                 let futures: Vec<_> = unique_symbols
                     .into_iter()
@@ -820,7 +983,9 @@ async fn handle_portfolio_command(input: &str) {
                                     "  {pnl_emoji} Closed at ${trigger_price:.2} — P&L: {pnl_sign}${pnl:.2}"
                                 );
                                 // Log to TRADES.md
-                                if let Some(trade) = portfolio_mut.trades.iter().find(|t| t.id == *trade_id) {
+                                if let Some(trade) =
+                                    portfolio_mut.trades.iter().find(|t| t.id == *trade_id)
+                                {
                                     let _ = tools::portfolio::log_trade_to_journal(trade, "close");
                                 }
                             }
@@ -880,9 +1045,17 @@ fn print_help() {
     println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
     println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
     println!("  {BOLD}/portfolio{RESET}           Paper trading portfolio summary");
-    println!("  {BOLD}/pf buy{RESET} <sym> <qty> [price] [reason]  Open a buy (auto-fetches price!)");
-    println!("  {BOLD}/pf sell{RESET} <sym> <qty> [price] [reason] Open a short (auto-fetches price!)");
-    println!("  {BOLD}/pf close{RESET} <id> [price]       Close position (auto-fetches if omitted)");
+    println!(
+        "  {BOLD}/pf buy{RESET} <sym> <qty> [price] [reason]  Open a buy (auto-fetches price!)"
+    );
+    println!(
+        "  {BOLD}/pf sell{RESET} <sym> <qty> [price] [reason] Open a short (auto-fetches price!)"
+    );
+    println!(
+        "  {BOLD}/pf close{RESET} <id> [price]       Close position (auto-fetches if omitted)"
+    );
+    println!("  {BOLD}/pf sl{RESET} <id> <price>         Set stop-loss on a trade");
+    println!("  {BOLD}/pf tp{RESET} <id> <price>         Set take-profit on a trade");
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");

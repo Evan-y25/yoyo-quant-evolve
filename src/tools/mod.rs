@@ -14,8 +14,8 @@ pub mod price_history;
 pub mod search_symbol;
 pub mod watchlist;
 
-pub use crypto::GetPriceTool;
 pub use crypto::fetch_live_price;
+pub use crypto::GetPriceTool;
 pub use market_overview::GetMarketOverviewTool;
 pub use news::GetNewsTool;
 pub use price_history::GetPriceHistoryTool;

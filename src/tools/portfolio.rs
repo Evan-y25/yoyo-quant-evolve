@@ -132,7 +132,9 @@ impl Portfolio {
         reasoning: &str,
         confidence: u8,
     ) -> Result<u32, String> {
-        self.open_trade_with_levels(symbol, side, quantity, price, reasoning, confidence, None, None)
+        self.open_trade_with_levels(
+            symbol, side, quantity, price, reasoning, confidence, None, None,
+        )
     }
 
     /// Open a new paper trade with optional stop-loss and take-profit.
@@ -334,7 +336,10 @@ impl Portfolio {
     }
 
     /// Get portfolio summary with live prices for unrealized P&L.
-    pub fn summary_with_prices(&self, price_map: &std::collections::HashMap<String, f64>) -> String {
+    pub fn summary_with_prices(
+        &self,
+        price_map: &std::collections::HashMap<String, f64>,
+    ) -> String {
         let mut output = String::new();
         output.push_str("💼 Paper Trading Portfolio\n");
         output.push_str("─────────────────────────────────────────\n");
@@ -374,7 +379,8 @@ impl Portfolio {
             ));
             let total_pnl = realized + total_unrealized;
             let total_value = self.cash + total_position_value;
-            let total_return = ((total_value - self.starting_balance) / self.starting_balance) * 100.0;
+            let total_return =
+                ((total_value - self.starting_balance) / self.starting_balance) * 100.0;
             output.push_str(&format!(
                 "  Total P&L:        {}{:.2} ({}{:.2}%)\n",
                 if total_pnl >= 0.0 { "+$" } else { "-$" },
@@ -382,10 +388,7 @@ impl Portfolio {
                 if total_return >= 0.0 { "+" } else { "" },
                 total_return,
             ));
-            output.push_str(&format!(
-                "  Portfolio Value:  ${:.2}\n",
-                total_value
-            ));
+            output.push_str(&format!("  Portfolio Value:  ${:.2}\n", total_value));
         }
 
         if let Some(wr) = self.win_rate() {
@@ -945,7 +948,16 @@ mod tests {
     fn test_open_trade_with_stop_loss() {
         let mut p = Portfolio::new();
         let id = p
-            .open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "SL test", 5, Some(85000.0), None)
+            .open_trade_with_levels(
+                "bitcoin",
+                "buy",
+                0.5,
+                90000.0,
+                "SL test",
+                5,
+                Some(85000.0),
+                None,
+            )
             .unwrap();
         let trade = p.trades.iter().find(|t| t.id == id).unwrap();
         assert_eq!(trade.stop_loss, Some(85000.0));
@@ -956,7 +968,16 @@ mod tests {
     fn test_open_trade_with_take_profit() {
         let mut p = Portfolio::new();
         let id = p
-            .open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "TP test", 5, None, Some(100000.0))
+            .open_trade_with_levels(
+                "bitcoin",
+                "buy",
+                0.5,
+                90000.0,
+                "TP test",
+                5,
+                None,
+                Some(100000.0),
+            )
             .unwrap();
         let trade = p.trades.iter().find(|t| t.id == id).unwrap();
         assert_eq!(trade.stop_loss, None);
@@ -967,7 +988,16 @@ mod tests {
     fn test_open_trade_with_both_sl_tp() {
         let mut p = Portfolio::new();
         let id = p
-            .open_trade_with_levels("AAPL", "buy", 10.0, 200.0, "Both", 7, Some(190.0), Some(220.0))
+            .open_trade_with_levels(
+                "AAPL",
+                "buy",
+                10.0,
+                200.0,
+                "Both",
+                7,
+                Some(190.0),
+                Some(220.0),
+            )
             .unwrap();
         let trade = p.trades.iter().find(|t| t.id == id).unwrap();
         assert_eq!(trade.stop_loss, Some(190.0));
@@ -987,7 +1017,8 @@ mod tests {
     fn test_stop_loss_validation_sell() {
         let mut p = Portfolio::new();
         // SL below entry for a short should fail
-        let result = p.open_trade_with_levels("AAPL", "sell", 10.0, 200.0, "", 5, Some(190.0), None);
+        let result =
+            p.open_trade_with_levels("AAPL", "sell", 10.0, 200.0, "", 5, Some(190.0), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("above entry"));
     }
@@ -1004,8 +1035,17 @@ mod tests {
     #[test]
     fn test_check_stop_loss_triggered() {
         let mut p = Portfolio::new();
-        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
-            .unwrap();
+        p.open_trade_with_levels(
+            "bitcoin",
+            "buy",
+            0.5,
+            90000.0,
+            "",
+            5,
+            Some(85000.0),
+            Some(100000.0),
+        )
+        .unwrap();
 
         let mut prices = std::collections::HashMap::new();
         prices.insert("bitcoin".to_string(), 84000.0); // Below SL
@@ -1018,8 +1058,17 @@ mod tests {
     #[test]
     fn test_check_take_profit_triggered() {
         let mut p = Portfolio::new();
-        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
-            .unwrap();
+        p.open_trade_with_levels(
+            "bitcoin",
+            "buy",
+            0.5,
+            90000.0,
+            "",
+            5,
+            Some(85000.0),
+            Some(100000.0),
+        )
+        .unwrap();
 
         let mut prices = std::collections::HashMap::new();
         prices.insert("bitcoin".to_string(), 101000.0); // Above TP
@@ -1032,8 +1081,17 @@ mod tests {
     #[test]
     fn test_check_no_trigger() {
         let mut p = Portfolio::new();
-        p.open_trade_with_levels("bitcoin", "buy", 0.5, 90000.0, "", 5, Some(85000.0), Some(100000.0))
-            .unwrap();
+        p.open_trade_with_levels(
+            "bitcoin",
+            "buy",
+            0.5,
+            90000.0,
+            "",
+            5,
+            Some(85000.0),
+            Some(100000.0),
+        )
+        .unwrap();
 
         let mut prices = std::collections::HashMap::new();
         prices.insert("bitcoin".to_string(), 92000.0); // Between SL and TP
@@ -1045,8 +1103,17 @@ mod tests {
     #[test]
     fn test_check_short_stop_loss() {
         let mut p = Portfolio::new();
-        p.open_trade_with_levels("bitcoin", "sell", 0.5, 90000.0, "", 5, Some(95000.0), Some(80000.0))
-            .unwrap();
+        p.open_trade_with_levels(
+            "bitcoin",
+            "sell",
+            0.5,
+            90000.0,
+            "",
+            5,
+            Some(95000.0),
+            Some(80000.0),
+        )
+        .unwrap();
 
         let mut prices = std::collections::HashMap::new();
         prices.insert("bitcoin".to_string(), 96000.0); // Above SL for short
@@ -1059,8 +1126,17 @@ mod tests {
     #[test]
     fn test_check_short_take_profit() {
         let mut p = Portfolio::new();
-        p.open_trade_with_levels("bitcoin", "sell", 0.5, 90000.0, "", 5, Some(95000.0), Some(80000.0))
-            .unwrap();
+        p.open_trade_with_levels(
+            "bitcoin",
+            "sell",
+            0.5,
+            90000.0,
+            "",
+            5,
+            Some(95000.0),
+            Some(80000.0),
+        )
+        .unwrap();
 
         let mut prices = std::collections::HashMap::new();
         prices.insert("bitcoin".to_string(), 79000.0); // Below TP for short
