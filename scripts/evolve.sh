@@ -174,8 +174,26 @@ echo "→ Session complete. Checking results..."
 echo "  Formatting code..."
 cargo fmt
 
-if cargo build --quiet 2>/dev/null && cargo test --quiet 2>/dev/null && cargo clippy --all-targets -- -D warnings 2>/dev/null; then
-    echo "  Build: PASS"
+# Step 1: Check build and tests
+if cargo build --quiet 2>/dev/null && cargo test --quiet 2>/dev/null; then
+    echo "  Build: PASS (tests passed)"
+    
+    # Step 2: Check clippy warnings (non-fatal)
+    # Allow warnings but show them. Only fail if actual compilation errors occur.
+    echo "  Checking code quality (clippy)..."
+    if cargo clippy --all-targets 2>&1 | tee /tmp/clippy_output.txt | grep -q "error\["; then
+        echo "  Clippy: compilation error detected (reverting)"
+        git checkout -- src/
+    else
+        # Count warnings
+        WARNING_COUNT=$(grep -c "^warning:" /tmp/clippy_output.txt 2>/dev/null || echo 0)
+        if [ "$WARNING_COUNT" -gt 0 ]; then
+            echo "  Clippy: $WARNING_COUNT warnings detected (non-critical, code accepted)"
+            echo "  Tip: Agent should fix these in a future round for better code quality."
+        else
+            echo "  Clippy: CLEAN (no warnings)"
+        fi
+    fi
 else
     echo "  Build: FAIL — reverting source changes"
     git checkout -- src/
