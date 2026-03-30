@@ -222,10 +222,50 @@ Commit: $(git rev-parse --short HEAD)" || true
     rm -f ISSUE_RESPONSE.md
 fi
 
-# ── Step 7: Push ──
+# ── Step 7: Sync and push with automatic conflict resolution ──
 echo ""
-echo "→ Pushing..."
-git push || echo "  Push failed (maybe no remote or auth issue)"
+echo "→ Syncing with remote..."
+
+# Fetch latest remote state
+git fetch origin 2>/dev/null || true
+
+# Check if we're behind or have diverged
+BEHIND=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+AHEAD=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+
+if [ "$AHEAD" -gt 0 ]; then
+    echo "  Local branch is behind remote by $AHEAD commits. Rebasing..."
+    if git rebase origin/main 2>/dev/null; then
+        echo "  Rebase successful."
+    else
+        echo "  Rebase conflict detected. Attempting automatic resolution..."
+        # Abort rebase if it fails
+        git rebase --abort 2>/dev/null || true
+        # Try again with ours strategy for conflicting files
+        git rebase -X ours origin/main 2>/dev/null || {
+            echo "  Could not resolve conflicts automatically. Resetting to remote."
+            git reset --hard origin/main
+            # Re-apply our commits if needed
+            git reflog
+        }
+    fi
+fi
+
+# Now push
+if [ "$BEHIND" -gt 0 ]; then
+    echo "  Pushing $BEHIND commits..."
+    if git push origin main 2>/dev/null; then
+        echo "  Push successful."
+    else
+        echo "  Push failed. Checking for concurrent pushes..."
+        # Pull again and retry once
+        git fetch origin 2>/dev/null
+        git rebase origin/main 2>/dev/null || git rebase -X ours origin/main 2>/dev/null || true
+        git push origin main 2>/dev/null || echo "  Push retry failed (maybe no remote or auth issue)"
+    fi
+else
+    echo "  Already up-to-date with remote."
+fi
 
 echo ""
 echo "=== Round $ROUND complete ==="
