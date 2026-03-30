@@ -437,6 +437,18 @@ fn format_indicators(
         }
     }
 
+    // Stochastic Oscillator (14,3) — only when high/low/close data available
+    if let (Some(h), Some(l)) = (highs, lows) {
+        if let Some(stoch) = indicators::stochastic(h, l, prices, 14, 3) {
+            output.push_str(&format!(
+                "  Stoch:    %K: {:.1} | %D: {:.1} {}\n",
+                stoch.k,
+                stoch.d,
+                indicators::stochastic_signal(&stoch),
+            ));
+        }
+    }
+
     output
 }
 

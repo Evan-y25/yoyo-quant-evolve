@@ -482,6 +482,109 @@ pub fn vwap_signal(current_price: f64, vwap_value: f64) -> &'static str {
     }
 }
 
+/// Stochastic Oscillator result.
+#[derive(Debug, Clone)]
+pub struct StochasticResult {
+    /// %K line: (Current Close - Lowest Low) / (Highest High - Lowest Low) * 100
+    pub k: f64,
+    /// %D line: SMA of %K over signal_period
+    pub d: f64,
+}
+
+/// Calculate Stochastic Oscillator.
+///
+/// Standard parameters: period=14, signal_period=3.
+/// Uses high/low/close data.
+///
+/// The Stochastic Oscillator measures momentum:
+/// - %K above 80: overbought
+/// - %K below 20: oversold
+/// - %K crossing above %D: bullish signal
+/// - %K crossing below %D: bearish signal
+///
+/// Returns None if there aren't enough data points.
+pub fn stochastic(
+    highs: &[f64],
+    lows: &[f64],
+    closes: &[f64],
+    period: usize,
+    signal_period: usize,
+) -> Option<StochasticResult> {
+    if highs.len() < period
+        || lows.len() < period
+        || closes.len() < period
+        || period == 0
+        || signal_period == 0
+        || highs.len() != lows.len()
+        || highs.len() != closes.len()
+    {
+        return None;
+    }
+
+    let len = closes.len();
+
+    // We need enough %K values to calculate %D
+    if len < period + signal_period - 1 {
+        return None;
+    }
+
+    // Calculate %K for each valid window
+    let mut k_values = Vec::with_capacity(len - period + 1);
+    for i in (period - 1)..len {
+        let window_start = i + 1 - period;
+        let highest_high = highs[window_start..=i]
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let lowest_low = lows[window_start..=i]
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        let range = highest_high - lowest_low;
+        let k = if range > 0.0 {
+            ((closes[i] - lowest_low) / range) * 100.0
+        } else {
+            50.0 // Default to middle if no range
+        };
+        k_values.push(k);
+    }
+
+    if k_values.len() < signal_period {
+        return None;
+    }
+
+    // Current %K is the last value
+    let current_k = *k_values.last().unwrap();
+
+    // %D = SMA of last signal_period %K values
+    let d_window = &k_values[k_values.len() - signal_period..];
+    let current_d = d_window.iter().sum::<f64>() / signal_period as f64;
+
+    Some(StochasticResult {
+        k: current_k,
+        d: current_d,
+    })
+}
+
+/// Interpret Stochastic Oscillator as a human-readable signal.
+pub fn stochastic_signal(result: &StochasticResult) -> &'static str {
+    if result.k >= 80.0 && result.k > result.d {
+        "🔴 Overbought (%K > 80, above %D)"
+    } else if result.k >= 80.0 && result.k <= result.d {
+        "🟠 Overbought, losing momentum (%K > 80, crossing below %D)"
+    } else if result.k <= 20.0 && result.k < result.d {
+        "🟢 Oversold (%K < 20, below %D)"
+    } else if result.k <= 20.0 && result.k >= result.d {
+        "🟠 Oversold, gaining momentum (%K < 20, crossing above %D)"
+    } else if result.k > result.d {
+        "🟢 Bullish (%K above %D)"
+    } else if result.k < result.d {
+        "🔴 Bearish (%K below %D)"
+    } else {
+        "⚪ Neutral"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -802,5 +905,99 @@ mod tests {
         // 100.0 and 100.3 are 0.3% apart → merge
         // 105.0 and 105.4 are ~0.38% → merge
         assert!(result.len() <= 3, "Should merge close levels, got {:?}", result);
+    }
+
+    #[test]
+    fn test_stochastic_uptrend() {
+        // Steadily increasing prices — %K should be high
+        let highs: Vec<f64> = (0..20).map(|i| 102.0 + i as f64).collect();
+        let lows: Vec<f64> = (0..20).map(|i| 98.0 + i as f64).collect();
+        let closes: Vec<f64> = (0..20).map(|i| 101.0 + i as f64).collect();
+        let result = stochastic(&highs, &lows, &closes, 14, 3);
+        assert!(result.is_some(), "Stochastic should compute with 20 data points");
+        let r = result.unwrap();
+        assert!(r.k > 50.0, "%K should be high in uptrend, got {}", r.k);
+    }
+
+    #[test]
+    fn test_stochastic_downtrend() {
+        // Steadily decreasing prices — %K should be low
+        let highs: Vec<f64> = (0..20).map(|i| 122.0 - i as f64).collect();
+        let lows: Vec<f64> = (0..20).map(|i| 118.0 - i as f64).collect();
+        let closes: Vec<f64> = (0..20).map(|i| 119.0 - i as f64).collect();
+        let result = stochastic(&highs, &lows, &closes, 14, 3);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!(r.k < 50.0, "%K should be low in downtrend, got {}", r.k);
+    }
+
+    #[test]
+    fn test_stochastic_insufficient_data() {
+        let highs = vec![12.0, 12.5];
+        let lows = vec![10.0, 10.5];
+        let closes = vec![11.0, 11.5];
+        assert!(stochastic(&highs, &lows, &closes, 14, 3).is_none());
+    }
+
+    #[test]
+    fn test_stochastic_mismatched_lengths() {
+        let highs = vec![12.0; 20];
+        let lows = vec![10.0; 19];
+        let closes = vec![11.0; 20];
+        assert!(stochastic(&highs, &lows, &closes, 14, 3).is_none());
+    }
+
+    #[test]
+    fn test_stochastic_flat_prices() {
+        // All same prices → %K should be 50 (default)
+        let highs = vec![100.0; 20];
+        let lows = vec![100.0; 20];
+        let closes = vec![100.0; 20];
+        let result = stochastic(&highs, &lows, &closes, 14, 3);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.k, 50.0, "%K should be 50 for flat prices, got {}", r.k);
+    }
+
+    #[test]
+    fn test_stochastic_signal_overbought() {
+        let overbought = StochasticResult { k: 85.0, d: 80.0 };
+        assert!(stochastic_signal(&overbought).contains("Overbought"));
+    }
+
+    #[test]
+    fn test_stochastic_signal_oversold() {
+        let oversold = StochasticResult { k: 15.0, d: 18.0 };
+        assert!(stochastic_signal(&oversold).contains("Oversold"));
+    }
+
+    #[test]
+    fn test_stochastic_signal_bullish() {
+        let bullish = StochasticResult { k: 55.0, d: 45.0 };
+        assert!(stochastic_signal(&bullish).contains("Bullish"));
+    }
+
+    #[test]
+    fn test_stochastic_signal_bearish() {
+        let bearish = StochasticResult { k: 45.0, d: 55.0 };
+        assert!(stochastic_signal(&bearish).contains("Bearish"));
+    }
+
+    #[test]
+    fn test_stochastic_range_bounds() {
+        // %K should always be between 0 and 100
+        let mut highs = Vec::new();
+        let mut lows = Vec::new();
+        let mut closes = Vec::new();
+        for i in 0..20 {
+            highs.push(100.0 + (i as f64 * 0.7).sin() * 10.0 + 5.0);
+            lows.push(100.0 + (i as f64 * 0.7).sin() * 10.0 - 5.0);
+            closes.push(100.0 + (i as f64 * 0.7).sin() * 10.0);
+        }
+        let result = stochastic(&highs, &lows, &closes, 14, 3);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!(r.k >= 0.0 && r.k <= 100.0, "%K should be 0-100, got {}", r.k);
+        assert!(r.d >= 0.0 && r.d <= 100.0, "%D should be 0-100, got {}", r.d);
     }
 }
