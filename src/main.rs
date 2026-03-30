@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.20.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.24.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -370,6 +370,10 @@ async fn main() {
             }
             s if s.starts_with("/portfolio") || s.starts_with("/pf") || s.starts_with("/trade") => {
                 handle_portfolio_command(s).await;
+                continue;
+            }
+            s if s.starts_with("/correlate") || s.starts_with("/corr ") => {
+                handle_correlate_command(s).await;
                 continue;
             }
             s if s.starts_with("/alert") => {
@@ -1184,6 +1188,208 @@ async fn handle_alert_command(input: &str) {
     }
 }
 
+/// Handle /correlate commands.
+///
+/// Usage:
+///   /correlate <symbol1> <symbol2> [range]
+///   /corr bitcoin ethereum 90d
+async fn handle_correlate_command(input: &str) {
+    let args = input
+        .trim_start_matches("/correlate")
+        .trim_start_matches("/corr")
+        .trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.len() < 2 {
+        println!("{DIM}  Usage: /correlate <symbol1> <symbol2> [range]{RESET}");
+        println!("{DIM}  Example: /correlate bitcoin ethereum 90d{RESET}");
+        println!("{DIM}  Example: /corr AAPL MSFT 1y{RESET}");
+        println!("{DIM}  Ranges: 7d, 30d, 90d, 1y (default: 30d){RESET}\n");
+        return;
+    }
+
+    let sym_a = parts[0];
+    let sym_b = parts[1];
+    let range = parts.get(2).copied().unwrap_or("30d");
+
+    println!("{DIM}  Fetching price history for {sym_a} and {sym_b} ({range})...{RESET}");
+
+    // Fetch both price histories concurrently
+    let (result_a, result_b) = tokio::join!(
+        fetch_price_series(sym_a, range),
+        fetch_price_series(sym_b, range),
+    );
+
+    let prices_a = match result_a {
+        Ok(p) => p,
+        Err(e) => {
+            println!("{RED}  Error fetching {sym_a}: {e}{RESET}\n");
+            return;
+        }
+    };
+
+    let prices_b = match result_b {
+        Ok(p) => p,
+        Err(e) => {
+            println!("{RED}  Error fetching {sym_b}: {e}{RESET}\n");
+            return;
+        }
+    };
+
+    // Align series to the same length (take the shorter one)
+    let min_len = prices_a.len().min(prices_b.len());
+    if min_len < 5 {
+        println!("{RED}  Error: Not enough data points for correlation (need at least 5, got {min_len}){RESET}\n");
+        return;
+    }
+
+    // Use the most recent data points
+    let a_slice = &prices_a[prices_a.len() - min_len..];
+    let b_slice = &prices_b[prices_b.len() - min_len..];
+
+    // Compute correlation on returns (% changes) — more meaningful than raw prices
+    let returns_a = tools::indicators::returns(a_slice);
+    let returns_b = tools::indicators::returns(b_slice);
+
+    let corr_price = tools::indicators::correlation(a_slice, b_slice);
+    let corr_returns = tools::indicators::correlation(&returns_a, &returns_b);
+
+    println!();
+    println!("{BOLD}{CYAN}  🔗 Correlation: {sym_a} vs {sym_b} ({range}){RESET}");
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("  Data points: {min_len}");
+
+    if let Some(r) = corr_price {
+        println!("  Price correlation:  {:.4} {}", r, tools::indicators::correlation_signal(r));
+    }
+    if let Some(r) = corr_returns {
+        println!("  Return correlation: {:.4} {}", r, tools::indicators::correlation_signal(r));
+    }
+
+    // Performance comparison
+    let change_a = if a_slice[0] > 0.0 {
+        ((a_slice[a_slice.len() - 1] - a_slice[0]) / a_slice[0]) * 100.0
+    } else {
+        0.0
+    };
+    let change_b = if b_slice[0] > 0.0 {
+        ((b_slice[b_slice.len() - 1] - b_slice[0]) / b_slice[0]) * 100.0
+    } else {
+        0.0
+    };
+    println!(
+        "  {sym_a} change: {}{:.2}%",
+        if change_a >= 0.0 { "+" } else { "" },
+        change_a
+    );
+    println!(
+        "  {sym_b} change: {}{:.2}%",
+        if change_b >= 0.0 { "+" } else { "" },
+        change_b
+    );
+
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("{DIM}  Return correlation is more meaningful for trading decisions.{RESET}");
+    println!("{DIM}  ⚠️  Correlation changes over time. Past correlation ≠ future.{RESET}\n");
+}
+
+/// Fetch a price series for correlation analysis.
+/// Returns a Vec of close prices.
+async fn fetch_price_series(symbol: &str, range: &str) -> Result<Vec<f64>, String> {
+    use tools::format::is_likely_stock_ticker;
+    use tools::http::create_client;
+
+    let client = create_client();
+
+    if is_likely_stock_ticker(symbol) {
+        fetch_yahoo_price_series(&client, symbol, range).await
+    } else {
+        match fetch_coingecko_price_series(&client, symbol, range).await {
+            Ok(prices) => Ok(prices),
+            Err(_) => {
+                let yahoo_sym = format!("{}-USD", symbol.to_uppercase());
+                fetch_yahoo_price_series(&client, &yahoo_sym, range).await
+            }
+        }
+    }
+}
+
+async fn fetch_coingecko_price_series(
+    client: &reqwest::Client,
+    coin_id: &str,
+    range: &str,
+) -> Result<Vec<f64>, String> {
+    use tools::http::fetch_json_with_retry;
+    
+    let days = match range {
+        "1d" => "1",
+        "7d" => "7",
+        "30d" => "30",
+        "90d" => "90",
+        "1y" => "365",
+        _ => "30",
+    };
+    let url = format!(
+        "https://api.coingecko.com/api/v3/coins/{}/market_chart?vs_currency=usd&days={}",
+        coin_id.to_lowercase(),
+        days,
+    );
+
+    let data = fetch_json_with_retry(client, &url).await?;
+    let prices = data["prices"]
+        .as_array()
+        .ok_or_else(|| format!("No price data for '{}'", coin_id))?;
+
+    let values: Vec<f64> = prices
+        .iter()
+        .filter_map(|p| p.as_array()?.get(1)?.as_f64())
+        .collect();
+
+    if values.is_empty() {
+        return Err(format!("Empty price data for '{}'", coin_id));
+    }
+    Ok(values)
+}
+
+async fn fetch_yahoo_price_series(
+    client: &reqwest::Client,
+    symbol: &str,
+    range: &str,
+) -> Result<Vec<f64>, String> {
+    use tools::http::fetch_json_with_retry;
+    
+    let (yahoo_range, interval) = match range {
+        "1d" => ("1d", "5m"),
+        "7d" => ("5d", "1h"),
+        "30d" => ("1mo", "1d"),
+        "90d" => ("3mo", "1d"),
+        "1y" => ("1y", "1wk"),
+        _ => ("1mo", "1d"),
+    };
+    let url = format!(
+        "https://query1.finance.yahoo.com/v8/finance/chart/{}?range={}&interval={}",
+        symbol, yahoo_range, interval
+    );
+
+    let data = fetch_json_with_retry(client, &url).await?;
+    let result = data["chart"]["result"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or_else(|| format!("No data for '{}'", symbol))?;
+
+    let closes: Vec<f64> = result["indicators"]["quote"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|q| q["close"].as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+        .unwrap_or_default();
+
+    if closes.is_empty() {
+        return Err(format!("No close data for '{}'", symbol));
+    }
+    Ok(closes)
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -1196,6 +1402,7 @@ fn print_help() {
     println!("  {BOLD}/news{RESET} <query>        Latest news headlines (e.g. /news bitcoin, /news AAPL earnings)");
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
     println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
+    println!("  {BOLD}/correlate{RESET} <a> <b> [range]  Correlation analysis between two assets");
     println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
     println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
     println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");

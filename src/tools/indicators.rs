@@ -566,6 +566,84 @@ pub fn stochastic(
     })
 }
 
+/// Calculate Pearson correlation coefficient between two price series.
+///
+/// Returns a value between -1.0 and +1.0:
+/// - +1.0: perfectly correlated (move together)
+/// - 0.0: no correlation
+/// - -1.0: perfectly inversely correlated (move opposite)
+///
+/// Useful for portfolio diversification:
+/// - High correlation → little diversification benefit
+/// - Low/negative correlation → good diversification
+///
+/// Both series must have the same length and at least 3 data points.
+pub fn correlation(series_a: &[f64], series_b: &[f64]) -> Option<f64> {
+    if series_a.len() != series_b.len() || series_a.len() < 3 {
+        return None;
+    }
+
+    let n = series_a.len() as f64;
+    let mean_a = series_a.iter().sum::<f64>() / n;
+    let mean_b = series_b.iter().sum::<f64>() / n;
+
+    let mut cov = 0.0;
+    let mut var_a = 0.0;
+    let mut var_b = 0.0;
+
+    for (a, b) in series_a.iter().zip(series_b.iter()) {
+        let da = a - mean_a;
+        let db = b - mean_b;
+        cov += da * db;
+        var_a += da * da;
+        var_b += db * db;
+    }
+
+    let denom = (var_a * var_b).sqrt();
+    if denom == 0.0 {
+        return None; // One or both series are constant
+    }
+
+    Some(cov / denom)
+}
+
+/// Interpret a correlation coefficient as a human-readable signal.
+pub fn correlation_signal(r: f64) -> &'static str {
+    if r >= 0.8 {
+        "🔴 Strongly correlated (low diversification benefit)"
+    } else if r >= 0.5 {
+        "🟠 Moderately correlated"
+    } else if r >= 0.2 {
+        "🟡 Weakly correlated"
+    } else if r >= -0.2 {
+        "🟢 Uncorrelated (good diversification)"
+    } else if r >= -0.5 {
+        "🟢 Weakly inversely correlated (diversification benefit)"
+    } else if r >= -0.8 {
+        "🟢 Moderately inversely correlated (strong diversification)"
+    } else {
+        "🟢 Strongly inversely correlated (maximum diversification)"
+    }
+}
+
+/// Calculate returns (percentage changes) from a price series.
+/// Returns a vector of length N-1 where each element is the % change from previous.
+pub fn returns(prices: &[f64]) -> Vec<f64> {
+    if prices.len() < 2 {
+        return Vec::new();
+    }
+    prices
+        .windows(2)
+        .map(|w| {
+            if w[0] == 0.0 {
+                0.0
+            } else {
+                (w[1] - w[0]) / w[0]
+            }
+        })
+        .collect()
+}
+
 /// Interpret Stochastic Oscillator as a human-readable signal.
 pub fn stochastic_signal(result: &StochasticResult) -> &'static str {
     if result.k >= 80.0 && result.k > result.d {
@@ -1104,5 +1182,90 @@ mod tests {
             "%D should be 0-100, got {}",
             r.d
         );
+    }
+
+    // === Correlation tests ===
+
+    #[test]
+    fn test_correlation_perfect_positive() {
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let b = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let r = correlation(&a, &b).unwrap();
+        assert!(
+            (r - 1.0).abs() < 0.0001,
+            "Perfect positive correlation should be 1.0, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_correlation_perfect_negative() {
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let b = vec![50.0, 40.0, 30.0, 20.0, 10.0];
+        let r = correlation(&a, &b).unwrap();
+        assert!(
+            (r + 1.0).abs() < 0.0001,
+            "Perfect negative correlation should be -1.0, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_correlation_uncorrelated() {
+        // Random-ish data with no clear relationship
+        let a = vec![1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 3.0, 7.0];
+        let b = vec![5.0, 2.0, 8.0, 1.0, 7.0, 3.0, 9.0, 4.0];
+        let r = correlation(&a, &b).unwrap();
+        assert!(
+            r.abs() < 0.5,
+            "Near-random data should have low correlation, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_correlation_mismatched_lengths() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0];
+        assert!(correlation(&a, &b).is_none());
+    }
+
+    #[test]
+    fn test_correlation_too_short() {
+        let a = vec![1.0, 2.0];
+        let b = vec![1.0, 2.0];
+        assert!(correlation(&a, &b).is_none());
+    }
+
+    #[test]
+    fn test_correlation_constant_series() {
+        let a = vec![5.0, 5.0, 5.0, 5.0];
+        let b = vec![1.0, 2.0, 3.0, 4.0];
+        // Constant series → zero variance → None
+        assert!(correlation(&a, &b).is_none());
+    }
+
+    #[test]
+    fn test_correlation_signal() {
+        assert!(correlation_signal(0.9).contains("Strongly correlated"));
+        assert!(correlation_signal(0.6).contains("Moderately correlated"));
+        assert!(correlation_signal(0.0).contains("Uncorrelated"));
+        assert!(correlation_signal(-0.6).contains("inversely correlated"));
+        assert!(correlation_signal(-0.9).contains("inversely correlated"));
+    }
+
+    #[test]
+    fn test_returns_basic() {
+        let prices = vec![100.0, 110.0, 99.0, 104.5];
+        let r = returns(&prices);
+        assert_eq!(r.len(), 3);
+        assert!((r[0] - 0.10).abs() < 0.0001, "First return should be +10%");
+        assert!((r[1] - (-0.10)).abs() < 0.0001, "Second return should be -10%");
+    }
+
+    #[test]
+    fn test_returns_empty() {
+        assert!(returns(&[]).is_empty());
+        assert!(returns(&[100.0]).is_empty());
     }
 }
