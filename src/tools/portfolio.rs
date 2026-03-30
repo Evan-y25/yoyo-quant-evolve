@@ -566,6 +566,194 @@ impl Portfolio {
 
         output
     }
+
+    /// Generate a full trade history report showing all closed trades with stats.
+    /// Optional `limit` to show only the most recent N trades (0 = show all).
+    pub fn history_report(&self, limit: usize) -> String {
+        let mut output = String::new();
+        let closed = self.closed_positions();
+        let open = self.open_positions();
+
+        output.push_str("📜 Trade History\n");
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  Total Trades:   {} ({} closed, {} open)\n",
+            self.trades.len(),
+            closed.len(),
+            open.len(),
+        ));
+
+        if !closed.is_empty() {
+            let realized = self.total_realized_pnl();
+            let wins: Vec<&&PaperTrade> = closed
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                .collect();
+            let losses: Vec<&&PaperTrade> = closed
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) < 0.0)
+                .collect();
+            let breakeven: Vec<&&PaperTrade> = closed
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) == 0.0)
+                .collect();
+
+            let avg_win = if !wins.is_empty() {
+                wins.iter()
+                    .map(|t| t.realized_pnl.unwrap_or(0.0))
+                    .sum::<f64>()
+                    / wins.len() as f64
+            } else {
+                0.0
+            };
+
+            let avg_loss = if !losses.is_empty() {
+                losses
+                    .iter()
+                    .map(|t| t.realized_pnl.unwrap_or(0.0))
+                    .sum::<f64>()
+                    / losses.len() as f64
+            } else {
+                0.0
+            };
+
+            let best_trade = closed
+                .iter()
+                .max_by(|a, b| {
+                    a.realized_pnl
+                        .unwrap_or(0.0)
+                        .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+            let worst_trade = closed
+                .iter()
+                .min_by(|a, b| {
+                    a.realized_pnl
+                        .unwrap_or(0.0)
+                        .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+            // Profit factor: sum of wins / sum of losses (absolute)
+            let total_wins: f64 = wins
+                .iter()
+                .map(|t| t.realized_pnl.unwrap_or(0.0))
+                .sum();
+            let total_losses: f64 = losses
+                .iter()
+                .map(|t| t.realized_pnl.unwrap_or(0.0).abs())
+                .sum();
+            let profit_factor = if total_losses > 0.0 {
+                total_wins / total_losses
+            } else if total_wins > 0.0 {
+                f64::INFINITY
+            } else {
+                0.0
+            };
+
+            output.push_str(&format!(
+                "  Realized P&L:   {}{:.2}\n",
+                if realized >= 0.0 { "+$" } else { "-$" },
+                realized.abs()
+            ));
+            if let Some(wr) = self.win_rate() {
+                output.push_str(&format!("  Win Rate:       {:.1}%\n", wr));
+            }
+            output.push_str(&format!(
+                "  Wins/Losses/BE: {} / {} / {}\n",
+                wins.len(),
+                losses.len(),
+                breakeven.len(),
+            ));
+            output.push_str(&format!("  Avg Win:        +${:.2}\n", avg_win));
+            output.push_str(&format!("  Avg Loss:       -${:.2}\n", avg_loss.abs()));
+            if profit_factor.is_finite() {
+                output.push_str(&format!("  Profit Factor:  {:.2}\n", profit_factor));
+            }
+
+            if let Some(best) = best_trade {
+                let pnl = best.realized_pnl.unwrap_or(0.0);
+                output.push_str(&format!(
+                    "  Best Trade:     #{} {} {} +${:.2}\n",
+                    best.id, best.side.to_uppercase(), best.symbol, pnl,
+                ));
+            }
+            if let Some(worst) = worst_trade {
+                let pnl = worst.realized_pnl.unwrap_or(0.0);
+                output.push_str(&format!(
+                    "  Worst Trade:    #{} {} {} -${:.2}\n",
+                    worst.id,
+                    worst.side.to_uppercase(),
+                    worst.symbol,
+                    pnl.abs(),
+                ));
+            }
+        }
+
+        // Show trades in reverse chronological order
+        output.push_str("─────────────────────────────────────────\n");
+
+        let trades_to_show: Vec<&PaperTrade> = if limit > 0 {
+            self.trades.iter().rev().take(limit).collect()
+        } else {
+            self.trades.iter().rev().collect()
+        };
+
+        if trades_to_show.is_empty() {
+            output.push_str("  No trades yet.\n");
+        } else {
+            if limit > 0 && self.trades.len() > limit {
+                output.push_str(&format!(
+                    "  Showing {} of {} trades:\n",
+                    limit,
+                    self.trades.len()
+                ));
+            }
+            for trade in &trades_to_show {
+                let status = if trade.is_open() {
+                    "📈 OPEN".to_string()
+                } else {
+                    let pnl = trade.realized_pnl.unwrap_or(0.0);
+                    let emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
+                    format!(
+                        "{} {}{:.2}",
+                        emoji,
+                        if pnl >= 0.0 { "+$" } else { "-$" },
+                        pnl.abs()
+                    )
+                };
+
+                let exit_info = if let Some(exit) = trade.exit_price {
+                    format!(" → ${:.2}", exit)
+                } else {
+                    String::new()
+                };
+
+                output.push_str(&format!(
+                    "  #{:<3} {} {:<10} x{:.4} @ ${:.2}{} {}\n",
+                    trade.id,
+                    trade.side.to_uppercase(),
+                    trade.symbol,
+                    trade.quantity,
+                    trade.entry_price,
+                    exit_info,
+                    status,
+                ));
+                if !trade.reasoning.is_empty() {
+                    let reason = if trade.reasoning.len() > 50 {
+                        format!("{}...", &trade.reasoning[..47])
+                    } else {
+                        trade.reasoning.clone()
+                    };
+                    output.push_str(&format!("       {}\n", reason));
+                }
+            }
+        }
+
+        output.push_str("─────────────────────────────────────────\n");
+        output
+    }
 }
 
 /// Get current timestamp as ISO 8601 string.
@@ -1144,5 +1332,45 @@ mod tests {
         let triggered = p.check_stop_loss_take_profit(&prices);
         assert_eq!(triggered.len(), 1);
         assert_eq!(triggered[0].2, "take-profit");
+    }
+
+    #[test]
+    fn test_history_report_empty() {
+        let p = Portfolio::new();
+        let report = p.history_report(20);
+        assert!(report.contains("Trade History"));
+        assert!(report.contains("No trades yet"));
+    }
+
+    #[test]
+    fn test_history_report_with_trades() {
+        let mut p = Portfolio::new();
+        let id1 = p.open_trade("AAPL", "buy", 10.0, 100.0, "Test trade", 5).unwrap();
+        p.close_trade(id1, 110.0).unwrap(); // +100 win
+        let id2 = p.open_trade("MSFT", "buy", 5.0, 200.0, "Another test", 6).unwrap();
+        p.close_trade(id2, 190.0).unwrap(); // -50 loss
+        // Open trade
+        p.open_trade("TSLA", "buy", 2.0, 300.0, "Open position", 7).unwrap();
+
+        let report = p.history_report(0);
+        assert!(report.contains("Trade History"));
+        assert!(report.contains("2 closed")); // 2 closed, 1 open
+        assert!(report.contains("1 open"));
+        assert!(report.contains("Win Rate"));
+        assert!(report.contains("Avg Win"));
+        assert!(report.contains("Profit Factor"));
+        assert!(report.contains("AAPL"));
+        assert!(report.contains("MSFT"));
+        assert!(report.contains("TSLA"));
+    }
+
+    #[test]
+    fn test_history_report_with_limit() {
+        let mut p = Portfolio::new();
+        for i in 0..10 {
+            p.open_trade("AAPL", "buy", 1.0, 100.0 + i as f64, "", 5).unwrap();
+        }
+        let report = p.history_report(3);
+        assert!(report.contains("Showing 3 of 10"));
     }
 }

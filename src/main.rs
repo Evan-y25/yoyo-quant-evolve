@@ -927,6 +927,15 @@ async fn handle_portfolio_command(input: &str) {
                 println!("{GREEN}  ✓ Take-profit set on trade #{trade_id}: ${tp:.2} (target: +${reward:.2}){RESET}\n");
             }
         }
+        Some("history") | Some("log") | Some("trades") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            let limit = if parts.len() >= 2 {
+                parts[1].parse::<usize>().unwrap_or(20)
+            } else {
+                20
+            };
+            println!("\n{}", portfolio.history_report(limit));
+        }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
             if let Err(e) = portfolio.save() {
@@ -1056,6 +1065,9 @@ fn print_help() {
     );
     println!("  {BOLD}/pf sl{RESET} <id> <price>         Set stop-loss on a trade");
     println!("  {BOLD}/pf tp{RESET} <id> <price>         Set take-profit on a trade");
+    println!(
+        "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
+    );
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
