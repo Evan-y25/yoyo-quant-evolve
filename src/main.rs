@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion{RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.17.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -313,10 +313,13 @@ async fn main() {
                 println!("{BOLD}{CYAN}  └────────────────────────────────────────────────────{RESET}\n");
                 continue;
             }
-            s if s.starts_with("/history ") => {
-                let parts: Vec<&str> = s.trim_start_matches("/history ").split_whitespace().collect();
+            s if s.starts_with("/history ") || s.starts_with("/ta ") || s.starts_with("/chart ") => {
+                let cmd = if s.starts_with("/history") { "/history " }
+                          else if s.starts_with("/ta") { "/ta " }
+                          else { "/chart " };
+                let parts: Vec<&str> = s.trim_start_matches(cmd).split_whitespace().collect();
                 if parts.is_empty() {
-                    println!("{DIM}  Usage: /history bitcoin [30d]  or  /history AAPL 1y{RESET}\n");
+                    println!("{DIM}  Usage: /history bitcoin [30d]  or  /ta AAPL 1y{RESET}\n");
                     continue;
                 }
                 let symbol = parts[0];
@@ -586,7 +589,8 @@ fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
     println!("  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)");
-    println!("  {BOLD}/history{RESET} <sym> [rng]  Price history with chart (e.g. /history bitcoin 30d)");
+    println!("  {BOLD}/history{RESET} <sym> [rng]  Price history + TA with chart (e.g. /history bitcoin 30d)");
+    println!("  {BOLD}/ta{RESET} <sym> [rng]       Alias for /history (e.g. /ta AAPL 90d)");
     println!("  {BOLD}/market{RESET}              Market overview — top crypto + US indices");
     println!("  {BOLD}/news{RESET} <query>        Latest news headlines (e.g. /news bitcoin, /news AAPL earnings)");
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
