@@ -316,6 +316,156 @@ pub fn vwap(prices: &[f64], volumes: &[f64]) -> Option<f64> {
     Some(total_pv / total_vol)
 }
 
+/// Calculate Average True Range (ATR) for a given period.
+///
+/// ATR measures volatility by looking at the range of price movement.
+/// It uses High, Low, Close data. Standard period is 14.
+///
+/// True Range = max of:
+///   - Current High - Current Low
+///   - |Current High - Previous Close|
+///   - |Current Low - Previous Close|
+///
+/// ATR = Smoothed average of True Range values.
+///
+/// Returns None if there aren't enough data points.
+pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Option<f64> {
+    if highs.len() < period + 1
+        || lows.len() < period + 1
+        || closes.len() < period + 1
+        || period == 0
+        || highs.len() != lows.len()
+        || highs.len() != closes.len()
+    {
+        return None;
+    }
+
+    // Calculate True Range for each bar (starting from index 1)
+    let mut true_ranges = Vec::with_capacity(highs.len() - 1);
+    for i in 1..highs.len() {
+        let hl = highs[i] - lows[i];
+        let hc = (highs[i] - closes[i - 1]).abs();
+        let lc = (lows[i] - closes[i - 1]).abs();
+        true_ranges.push(hl.max(hc).max(lc));
+    }
+
+    if true_ranges.len() < period {
+        return None;
+    }
+
+    // Initial ATR = average of first `period` true ranges
+    let mut atr_val: f64 = true_ranges[..period].iter().sum::<f64>() / period as f64;
+
+    // Smooth using Wilder's method
+    for &tr in &true_ranges[period..] {
+        atr_val = (atr_val * (period as f64 - 1.0) + tr) / period as f64;
+    }
+
+    Some(atr_val)
+}
+
+/// Interpret ATR as a volatility signal relative to price.
+pub fn atr_signal(atr_value: f64, current_price: f64) -> &'static str {
+    if current_price <= 0.0 {
+        return "⚪ Unknown";
+    }
+    let atr_pct = (atr_value / current_price) * 100.0;
+    if atr_pct > 5.0 {
+        "🔴 Very High Volatility (ATR > 5% of price)"
+    } else if atr_pct > 3.0 {
+        "🟠 High Volatility (ATR 3-5% of price)"
+    } else if atr_pct > 1.5 {
+        "🟡 Moderate Volatility (ATR 1.5-3% of price)"
+    } else if atr_pct > 0.5 {
+        "🟢 Low Volatility (ATR 0.5-1.5% of price)"
+    } else {
+        "⚪ Very Low Volatility (ATR < 0.5% of price)"
+    }
+}
+
+/// Calculate simple Support and Resistance levels from price data.
+///
+/// Uses recent highs/lows to identify key levels:
+/// - Resistance: recent high, and the highest recent swing
+/// - Support: recent low, and the lowest recent swing
+///
+/// Returns (support_levels, resistance_levels) sorted.
+pub fn support_resistance(prices: &[f64], period: usize) -> Option<(Vec<f64>, Vec<f64>)> {
+    if prices.len() < period || period < 5 {
+        return None;
+    }
+
+    let window = &prices[prices.len() - period..];
+    let current = *prices.last().unwrap();
+
+    // Find local minima and maxima (simple swing detection)
+    let mut supports = Vec::new();
+    let mut resistances = Vec::new();
+
+    // Use the absolute high and low
+    let period_high = window.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let period_low = window.iter().copied().fold(f64::INFINITY, f64::min);
+
+    if period_high > current {
+        resistances.push(period_high);
+    }
+    if period_low < current {
+        supports.push(period_low);
+    }
+
+    // Find swing highs/lows (points higher/lower than 2 neighbors)
+    for i in 2..window.len() - 2 {
+        let p = window[i];
+        if p > window[i - 1] && p > window[i - 2] && p > window[i + 1] && p > window[i + 2] {
+            // Swing high — potential resistance
+            if p > current {
+                resistances.push(p);
+            }
+        }
+        if p < window[i - 1] && p < window[i - 2] && p < window[i + 1] && p < window[i + 2] {
+            // Swing low — potential support
+            if p < current {
+                supports.push(p);
+            }
+        }
+    }
+
+    // Deduplicate similar levels (within 0.5% of each other)
+    supports = dedup_levels(supports);
+    resistances = dedup_levels(resistances);
+
+    // Sort: supports descending (closest to price first), resistances ascending
+    supports.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    resistances.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Keep top 3 each
+    supports.truncate(3);
+    resistances.truncate(3);
+
+    Some((supports, resistances))
+}
+
+/// Merge levels that are within 0.5% of each other (take the average).
+fn dedup_levels(mut levels: Vec<f64>) -> Vec<f64> {
+    if levels.is_empty() {
+        return levels;
+    }
+    levels.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut merged = vec![levels[0]];
+    for &level in &levels[1..] {
+        let last = merged.last().unwrap();
+        if (level - last) / last < 0.005 {
+            // Merge: average them
+            let avg = (*last + level) / 2.0;
+            *merged.last_mut().unwrap() = avg;
+        } else {
+            merged.push(level);
+        }
+    }
+    merged
+}
+
 /// Interpret VWAP position as a human-readable signal.
 pub fn vwap_signal(current_price: f64, vwap_value: f64) -> &'static str {
     let diff_pct = ((current_price - vwap_value) / vwap_value) * 100.0;
@@ -579,5 +729,78 @@ mod tests {
         assert!(vwap_signal(105.0, 100.0).contains("above VWAP"));
         assert!(vwap_signal(95.0, 100.0).contains("below VWAP"));
         assert!(vwap_signal(100.0, 100.0).contains("Near VWAP"));
+    }
+
+    #[test]
+    fn test_atr_basic() {
+        // Simple case: steady prices with known ranges
+        let highs =  vec![12.0, 12.5, 13.0, 12.8, 13.2, 12.9, 13.1, 12.7, 13.3, 13.5, 13.0, 13.2, 13.4, 13.1, 13.6, 13.3];
+        let lows =   vec![10.0, 10.5, 11.0, 10.8, 11.2, 10.9, 11.1, 10.7, 11.3, 11.5, 11.0, 11.2, 11.4, 11.1, 11.6, 11.3];
+        let closes = vec![11.0, 11.5, 12.0, 11.8, 12.2, 11.9, 12.1, 11.7, 12.3, 12.5, 12.0, 12.2, 12.4, 12.1, 12.6, 12.3];
+        let result = atr(&highs, &lows, &closes, 14);
+        assert!(result.is_some(), "ATR should compute with 16 data points and period 14");
+        let val = result.unwrap();
+        assert!(val > 0.0, "ATR should be positive, got {}", val);
+    }
+
+    #[test]
+    fn test_atr_insufficient_data() {
+        let highs = vec![12.0, 12.5];
+        let lows = vec![10.0, 10.5];
+        let closes = vec![11.0, 11.5];
+        assert!(atr(&highs, &lows, &closes, 14).is_none());
+    }
+
+    #[test]
+    fn test_atr_mismatched_lengths() {
+        let highs = vec![12.0, 12.5, 13.0];
+        let lows = vec![10.0, 10.5];
+        let closes = vec![11.0, 11.5, 12.0];
+        assert!(atr(&highs, &lows, &closes, 2).is_none());
+    }
+
+    #[test]
+    fn test_atr_signal() {
+        // 6% ATR on a $100 stock = very high
+        assert!(atr_signal(6.0, 100.0).contains("Very High"));
+        // 1% ATR = low
+        assert!(atr_signal(1.0, 100.0).contains("Low Volatility"));
+        // 0.3% = very low
+        assert!(atr_signal(0.3, 100.0).contains("Very Low"));
+    }
+
+    #[test]
+    fn test_support_resistance_basic() {
+        // Create a price series with clear swing highs and lows
+        let mut prices = Vec::new();
+        // Upswing
+        for i in 0..10 { prices.push(100.0 + i as f64); }
+        // Downswing
+        for i in 0..10 { prices.push(109.0 - i as f64); }
+        // Upswing again
+        for i in 0..10 { prices.push(100.0 + i as f64 * 0.8); }
+        // Price ends at ~107
+
+        let result = support_resistance(&prices, 30);
+        assert!(result.is_some(), "Should detect support/resistance levels");
+        let (supports, resistances) = result.unwrap();
+        // Should find some levels
+        assert!(supports.len() > 0 || resistances.len() > 0, "Should find at least one level");
+    }
+
+    #[test]
+    fn test_support_resistance_insufficient_data() {
+        let prices = vec![100.0, 101.0, 102.0];
+        assert!(support_resistance(&prices, 20).is_none());
+    }
+
+    #[test]
+    fn test_dedup_levels() {
+        // Levels within 0.5% of each other should merge
+        let levels = vec![100.0, 100.3, 105.0, 105.4, 110.0];
+        let result = dedup_levels(levels);
+        // 100.0 and 100.3 are 0.3% apart → merge
+        // 105.0 and 105.4 are ~0.38% → merge
+        assert!(result.len() <= 3, "Should merge close levels, got {:?}", result);
     }
 }

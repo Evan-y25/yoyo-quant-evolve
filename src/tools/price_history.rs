@@ -219,7 +219,7 @@ async fn fetch_coingecko_history(
 
     // Technical indicators (only if we have enough data)
     let vol_ref = if volume_points.is_empty() { None } else { Some(volume_points.as_slice()) };
-    output.push_str(&format_indicators(&prices_only, last_price, vol_ref));
+    output.push_str(&format_indicators(&prices_only, last_price, vol_ref, None, None));
 
     Ok(output)
 }
@@ -318,14 +318,22 @@ async fn fetch_yahoo_history(
     // Technical indicators
     // Technical indicators
     let vol_ref = if volumes.is_empty() { None } else { Some(volumes.as_slice()) };
-    output.push_str(&format_indicators(&closes, last_close, vol_ref));
+    let highs_ref = if highs.is_empty() { None } else { Some(highs.as_slice()) };
+    let lows_ref = if lows.is_empty() { None } else { Some(lows.as_slice()) };
+    output.push_str(&format_indicators(&closes, last_close, vol_ref, highs_ref, lows_ref));
 
     Ok(output)
 }
 
 /// Format technical indicators for display.
 /// Only shows indicators when there's enough data.
-fn format_indicators(prices: &[f64], current_price: f64, volumes: Option<&[f64]>) -> String {
+fn format_indicators(
+    prices: &[f64],
+    current_price: f64,
+    volumes: Option<&[f64]>,
+    highs: Option<&[f64]>,
+    lows: Option<&[f64]>,
+) -> String {
     let mut output = String::new();
     let has_any = prices.len() >= 15; // Need at least 15 for RSI(14)
 
@@ -401,6 +409,31 @@ fn format_indicators(prices: &[f64], current_price: f64, volumes: Option<&[f64]>
                 format_price(vwap_val),
                 indicators::vwap_signal(current_price, vwap_val),
             ));
+        }
+    }
+
+    // ATR (Average True Range) — only when high/low/close data available
+    if let (Some(h), Some(l)) = (highs, lows) {
+        if let Some(atr_val) = indicators::atr(h, l, prices, 14) {
+            output.push_str(&format!(
+                "  ATR(14):  {} {}\n",
+                format_price(atr_val),
+                indicators::atr_signal(atr_val, current_price),
+            ));
+        }
+    }
+
+    // Support & Resistance levels
+    if prices.len() >= 20 {
+        if let Some((supports, resistances)) = indicators::support_resistance(prices, prices.len().min(50)) {
+            if !resistances.is_empty() {
+                let levels: Vec<String> = resistances.iter().map(|r| format_price(*r)).collect();
+                output.push_str(&format!("  Resist:   {}\n", levels.join(" | ")));
+            }
+            if !supports.is_empty() {
+                let levels: Vec<String> = supports.iter().map(|s| format_price(*s)).collect();
+                output.push_str(&format!("  Support:  {}\n", levels.join(" | ")));
+            }
         }
     }
 
