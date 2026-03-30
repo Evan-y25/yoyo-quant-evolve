@@ -1115,7 +1115,11 @@ async fn handle_alert_command(input: &str) {
                 let triggered = am.check_alerts(&price_map);
                 if !triggered.is_empty() {
                     for (id, symbol, condition, target, current) in &triggered {
-                        let emoji = if *condition == "above" { "📈" } else { "📉" };
+                        let emoji = if *condition == "above" {
+                            "📈"
+                        } else {
+                            "📉"
+                        };
                         println!(
                             "\n{YELLOW}  🔔 ALERT #{id}: {symbol} is {condition} ${target:.2}! Current: ${current:.2} {emoji}{RESET}"
                         );

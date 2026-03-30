@@ -617,29 +617,22 @@ impl Portfolio {
                 0.0
             };
 
-            let best_trade = closed
-                .iter()
-                .max_by(|a, b| {
-                    a.realized_pnl
-                        .unwrap_or(0.0)
-                        .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+            let best_trade = closed.iter().max_by(|a, b| {
+                a.realized_pnl
+                    .unwrap_or(0.0)
+                    .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
-            let worst_trade = closed
-                .iter()
-                .min_by(|a, b| {
-                    a.realized_pnl
-                        .unwrap_or(0.0)
-                        .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+            let worst_trade = closed.iter().min_by(|a, b| {
+                a.realized_pnl
+                    .unwrap_or(0.0)
+                    .partial_cmp(&b.realized_pnl.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             // Profit factor: sum of wins / sum of losses (absolute)
-            let total_wins: f64 = wins
-                .iter()
-                .map(|t| t.realized_pnl.unwrap_or(0.0))
-                .sum();
+            let total_wins: f64 = wins.iter().map(|t| t.realized_pnl.unwrap_or(0.0)).sum();
             let total_losses: f64 = losses
                 .iter()
                 .map(|t| t.realized_pnl.unwrap_or(0.0).abs())
@@ -676,7 +669,10 @@ impl Portfolio {
                 let pnl = best.realized_pnl.unwrap_or(0.0);
                 output.push_str(&format!(
                     "  Best Trade:     #{} {} {} +${:.2}\n",
-                    best.id, best.side.to_uppercase(), best.symbol, pnl,
+                    best.id,
+                    best.side.to_uppercase(),
+                    best.symbol,
+                    pnl,
                 ));
             }
             if let Some(worst) = worst_trade {
@@ -1345,12 +1341,17 @@ mod tests {
     #[test]
     fn test_history_report_with_trades() {
         let mut p = Portfolio::new();
-        let id1 = p.open_trade("AAPL", "buy", 10.0, 100.0, "Test trade", 5).unwrap();
+        let id1 = p
+            .open_trade("AAPL", "buy", 10.0, 100.0, "Test trade", 5)
+            .unwrap();
         p.close_trade(id1, 110.0).unwrap(); // +100 win
-        let id2 = p.open_trade("MSFT", "buy", 5.0, 200.0, "Another test", 6).unwrap();
+        let id2 = p
+            .open_trade("MSFT", "buy", 5.0, 200.0, "Another test", 6)
+            .unwrap();
         p.close_trade(id2, 190.0).unwrap(); // -50 loss
-        // Open trade
-        p.open_trade("TSLA", "buy", 2.0, 300.0, "Open position", 7).unwrap();
+                                            // Open trade
+        p.open_trade("TSLA", "buy", 2.0, 300.0, "Open position", 7)
+            .unwrap();
 
         let report = p.history_report(0);
         assert!(report.contains("Trade History"));
@@ -1368,7 +1369,8 @@ mod tests {
     fn test_history_report_with_limit() {
         let mut p = Portfolio::new();
         for i in 0..10 {
-            p.open_trade("AAPL", "buy", 1.0, 100.0 + i as f64, "", 5).unwrap();
+            p.open_trade("AAPL", "buy", 1.0, 100.0 + i as f64, "", 5)
+                .unwrap();
         }
         let report = p.history_report(3);
         assert!(report.contains("Showing 3 of 10"));
