@@ -374,6 +374,22 @@ fn format_indicators(prices: &[f64], current_price: f64) -> String {
         ));
     }
 
+    // Bollinger Bands (standard 20, 2σ)
+    if let Some(bb) = indicators::bollinger_bands(prices, 20, 2.0) {
+        output.push_str(&format!(
+            "  BB(20):   Upper: {} | Mid: {} | Lower: {}\n",
+            format_price(bb.upper),
+            format_price(bb.middle),
+            format_price(bb.lower),
+        ));
+        output.push_str(&format!(
+            "  BB:       %B: {:.2} | BW: {:.2}% {}\n",
+            bb.percent_b,
+            bb.bandwidth,
+            indicators::bollinger_signal(&bb),
+        ));
+    }
+
     output
 }
 

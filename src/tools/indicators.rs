@@ -210,6 +210,87 @@ pub fn macd_signal(result: &MacdResult) -> &'static str {
     }
 }
 
+/// Bollinger Bands result.
+#[derive(Debug, Clone)]
+pub struct BollingerBands {
+    /// Middle band (SMA)
+    pub middle: f64,
+    /// Upper band (SMA + k * stddev)
+    pub upper: f64,
+    /// Lower band (SMA - k * stddev)
+    pub lower: f64,
+    /// Bandwidth: (upper - lower) / middle * 100 — measures volatility
+    pub bandwidth: f64,
+    /// %B: (price - lower) / (upper - lower) — position within bands
+    /// > 1.0 means price above upper band, < 0.0 means below lower band
+    pub percent_b: f64,
+}
+
+/// Calculate Bollinger Bands.
+///
+/// Standard parameters: period=20, k=2.0 (standard deviations).
+/// Returns None if there aren't enough data points.
+///
+/// Bollinger Bands measure volatility and relative price levels:
+/// - Price near upper band → potentially overbought
+/// - Price near lower band → potentially oversold
+/// - Bands narrowing (squeeze) → low volatility, breakout possible
+/// - Bands widening → high volatility, trend in progress
+pub fn bollinger_bands(prices: &[f64], period: usize, k: f64) -> Option<BollingerBands> {
+    if prices.len() < period || period == 0 {
+        return None;
+    }
+
+    let window = &prices[prices.len() - period..];
+    let middle = window.iter().sum::<f64>() / period as f64;
+
+    // Standard deviation
+    let variance = window.iter().map(|&p| (p - middle).powi(2)).sum::<f64>() / period as f64;
+    let stddev = variance.sqrt();
+
+    let upper = middle + k * stddev;
+    let lower = middle - k * stddev;
+
+    let bandwidth = if middle > 0.0 {
+        (upper - lower) / middle * 100.0
+    } else {
+        0.0
+    };
+
+    let current_price = *prices.last().unwrap();
+    let band_width = upper - lower;
+    let percent_b = if band_width > 0.0 {
+        (current_price - lower) / band_width
+    } else {
+        0.5 // Default to middle if bands have zero width
+    };
+
+    Some(BollingerBands {
+        middle,
+        upper,
+        lower,
+        bandwidth,
+        percent_b,
+    })
+}
+
+/// Interpret Bollinger Bands position as a human-readable signal.
+pub fn bollinger_signal(bb: &BollingerBands) -> &'static str {
+    if bb.percent_b > 1.0 {
+        "🔴 Above upper band (potentially overbought)"
+    } else if bb.percent_b > 0.8 {
+        "🟠 Near upper band (watch for reversal)"
+    } else if bb.percent_b > 0.5 {
+        "🟢 Upper half (bullish positioning)"
+    } else if bb.percent_b > 0.2 {
+        "🟡 Lower half (bearish positioning)"
+    } else if bb.percent_b >= 0.0 {
+        "🟠 Near lower band (watch for bounce)"
+    } else {
+        "🟢 Below lower band (potentially oversold)"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +439,69 @@ mod tests {
         // histogram = macd_line - signal_line
         let expected_hist = r.macd_line - r.signal_line;
         assert!((r.histogram - expected_hist).abs() < 0.0001, "Histogram should equal MACD - Signal");
+    }
+
+    #[test]
+    fn test_bollinger_bands_basic() {
+        // Flat prices → narrow bands
+        let prices = vec![100.0; 20];
+        let result = bollinger_bands(&prices, 20, 2.0);
+        assert!(result.is_some());
+        let bb = result.unwrap();
+        assert_eq!(bb.middle, 100.0);
+        assert_eq!(bb.upper, 100.0); // Zero stddev → bands collapse
+        assert_eq!(bb.lower, 100.0);
+        assert_eq!(bb.bandwidth, 0.0);
+    }
+
+    #[test]
+    fn test_bollinger_bands_volatile() {
+        // Alternating prices should create wider bands
+        let mut prices = Vec::new();
+        for i in 0..20 {
+            if i % 2 == 0 { prices.push(110.0); } else { prices.push(90.0); }
+        }
+        let result = bollinger_bands(&prices, 20, 2.0);
+        assert!(result.is_some());
+        let bb = result.unwrap();
+        assert_eq!(bb.middle, 100.0); // Average of 110 and 90
+        assert!(bb.upper > 100.0, "Upper band should be above middle");
+        assert!(bb.lower < 100.0, "Lower band should be below middle");
+        assert!(bb.bandwidth > 0.0, "Bandwidth should be positive for volatile prices");
+    }
+
+    #[test]
+    fn test_bollinger_bands_insufficient_data() {
+        let prices = vec![10.0, 20.0];
+        assert!(bollinger_bands(&prices, 20, 2.0).is_none());
+    }
+
+    #[test]
+    fn test_bollinger_percent_b() {
+        // Price at upper band → %B ≈ 1.0
+        // Price at lower band → %B ≈ 0.0
+        // Price at middle → %B ≈ 0.5
+        let mut prices = Vec::new();
+        for i in 0..19 {
+            if i % 2 == 0 { prices.push(110.0); } else { prices.push(90.0); }
+        }
+        // Last price at the middle
+        prices.push(100.0);
+        let result = bollinger_bands(&prices, 20, 2.0);
+        assert!(result.is_some());
+        let bb = result.unwrap();
+        assert!((bb.percent_b - 0.5).abs() < 0.1, "%B should be near 0.5 when price is at middle, got {}", bb.percent_b);
+    }
+
+    #[test]
+    fn test_bollinger_signal_interpretation() {
+        let overbought = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: 1.1 };
+        assert!(bollinger_signal(&overbought).contains("overbought"));
+
+        let oversold = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: -0.1 };
+        assert!(bollinger_signal(&oversold).contains("oversold"));
+
+        let middle = BollingerBands { middle: 100.0, upper: 120.0, lower: 80.0, bandwidth: 40.0, percent_b: 0.6 };
+        assert!(bollinger_signal(&middle).contains("bullish"));
     }
 }
