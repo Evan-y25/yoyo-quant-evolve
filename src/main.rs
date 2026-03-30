@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.17.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.19.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -344,6 +344,10 @@ async fn main() {
                 handle_watchlist_command(s).await;
                 continue;
             }
+            s if s.starts_with("/portfolio") || s.starts_with("/pf") || s.starts_with("/trade") => {
+                handle_portfolio_command(s).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -585,6 +589,141 @@ async fn handle_watchlist_command(input: &str) {
     }
 }
 
+/// Handle /portfolio, /pf, /trade commands.
+///
+/// Subcommands:
+///   /portfolio             — show portfolio summary
+///   /pf buy <sym> <qty> <price> [reason]  — open a buy position
+///   /pf sell <sym> <qty> <price> [reason] — open a short position
+///   /pf close <id> <price>                — close a position
+///   /pf reset                             — reset to starting balance
+async fn handle_portfolio_command(input: &str) {
+    let args = input
+        .trim_start_matches("/portfolio")
+        .trim_start_matches("/trade")
+        .trim_start_matches("/pf")
+        .trim();
+
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    match parts.first().copied() {
+        Some("buy") | Some("sell") => {
+            let side = parts[0];
+            if parts.len() < 4 {
+                println!(
+                    "{DIM}  Usage: /pf {side} <symbol> <quantity> <price> [reason]{RESET}"
+                );
+                println!(
+                    "{DIM}  Example: /pf buy bitcoin 0.5 87000 BTC looks bullish{RESET}\n"
+                );
+                return;
+            }
+            let symbol = parts[1];
+            let quantity: f64 = match parts[2].parse() {
+                Ok(q) => q,
+                Err(_) => {
+                    println!("{RED}  Error: quantity must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let price: f64 = match parts[3].parse() {
+                Ok(p) => p,
+                Err(_) => {
+                    println!("{RED}  Error: price must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let reasoning = if parts.len() > 4 {
+                parts[4..].join(" ")
+            } else {
+                String::new()
+            };
+
+            let mut portfolio = tools::portfolio::Portfolio::load();
+            match portfolio.open_trade(symbol, side, quantity, price, &reasoning, 5) {
+                Ok(id) => {
+                    if let Err(e) = portfolio.save() {
+                        println!("{RED}  Error saving portfolio: {e}{RESET}\n");
+                        return;
+                    }
+                    let notional = quantity * price;
+                    println!(
+                        "\n{GREEN}  ✓ Trade #{id} opened: {side} {symbol} x{quantity} @ ${price:.2} (${notional:.2}){RESET}"
+                    );
+                    println!(
+                        "{DIM}  Cash remaining: ${:.2}{RESET}\n",
+                        portfolio.cash
+                    );
+                }
+                Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+            }
+        }
+        Some("close") => {
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /pf close <trade_id> <exit_price>{RESET}");
+                println!("{DIM}  Example: /pf close 1 92000{RESET}\n");
+                return;
+            }
+            let trade_id: u32 = match parts[1].trim_start_matches('#').parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("{RED}  Error: trade_id must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let exit_price: f64 = match parts[2].parse() {
+                Ok(p) => p,
+                Err(_) => {
+                    println!("{RED}  Error: exit_price must be a number{RESET}\n");
+                    return;
+                }
+            };
+
+            let mut portfolio = tools::portfolio::Portfolio::load();
+            match portfolio.close_trade(trade_id, exit_price) {
+                Ok(pnl) => {
+                    if let Err(e) = portfolio.save() {
+                        println!("{RED}  Error saving portfolio: {e}{RESET}\n");
+                        return;
+                    }
+                    let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
+                    let pnl_sign = if pnl >= 0.0 { "+" } else { "" };
+                    println!(
+                        "\n{GREEN}  ✓ Trade #{trade_id} closed at ${exit_price:.2}{RESET}"
+                    );
+                    println!(
+                        "  {pnl_emoji} P&L: {pnl_sign}${pnl:.2}"
+                    );
+                    println!(
+                        "{DIM}  Cash: ${:.2}{RESET}\n",
+                        portfolio.cash
+                    );
+                }
+                Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
+            }
+        }
+        Some("reset") => {
+            let portfolio = tools::portfolio::Portfolio::new();
+            if let Err(e) = portfolio.save() {
+                println!("{RED}  Error saving portfolio: {e}{RESET}\n");
+                return;
+            }
+            println!(
+                "{GREEN}  ✓ Portfolio reset to ${:.2}{RESET}\n",
+                portfolio.starting_balance
+            );
+        }
+        None | Some("show") | Some("summary") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            println!("\n{}", portfolio.summary());
+        }
+        Some(unknown) => {
+            println!("{DIM}  Unknown portfolio command: {unknown}");
+            println!("  Usage: /portfolio [buy|sell|close|reset|show]{RESET}\n");
+        }
+    }
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -598,6 +737,11 @@ fn print_help() {
     println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
     println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
     println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
+    println!("  {BOLD}/portfolio{RESET}           Paper trading portfolio summary");
+    println!("  {BOLD}/pf buy{RESET} <sym> <qty> <price> [reason]  Open a buy position");
+    println!("  {BOLD}/pf sell{RESET} <sym> <qty> <price> [reason] Open a short position");
+    println!("  {BOLD}/pf close{RESET} <id> <price>       Close position at price");
+    println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
