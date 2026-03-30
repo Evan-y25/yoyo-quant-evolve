@@ -218,6 +218,6 @@ mod tests {
     fn test_format_large_number() {
         assert_eq!(format_large_number_usd(1_700_000_000_000.0), "$1.70T");
         assert_eq!(format_large_number_usd(45_000_000_000.0), "$45.00B");
-        assert_eq!(format_large_number_usd(500_000.0), "$500000");
+        assert_eq!(format_large_number_usd(500_000.0), "$500.00K");
     }
 }

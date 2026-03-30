@@ -35,7 +35,7 @@ fn format_with_commas(n: u64) -> String {
     result
 }
 
-/// Format a large number with human-readable suffixes (T, B, M).
+/// Format a large number with human-readable suffixes (T, B, M, K).
 /// Prefixed with $ for monetary values.
 pub fn format_large_number_usd(n: f64) -> String {
     if n >= 1_000_000_000_000.0 {
@@ -45,7 +45,7 @@ pub fn format_large_number_usd(n: f64) -> String {
     } else if n >= 1_000_000.0 {
         format!("${:.2}M", n / 1_000_000.0)
     } else if n >= 1_000.0 {
-        format!("${:.0}", n)
+        format!("${:.2}K", n / 1_000.0)
     } else {
         format!("${:.2}", n)
     }
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_format_large_number_thousand() {
-        assert_eq!(format_large_number_usd(50_000.0), "$50000");
+        assert_eq!(format_large_number_usd(50_000.0), "$50.00K");
     }
 
     #[test]
