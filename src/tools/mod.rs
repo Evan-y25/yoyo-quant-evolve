@@ -9,6 +9,7 @@ pub mod http;
 pub mod indicators;
 pub mod market_overview;
 pub mod news;
+pub mod portfolio;
 pub mod price_history;
 pub mod search_symbol;
 pub mod watchlist;
