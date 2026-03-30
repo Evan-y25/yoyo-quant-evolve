@@ -39,13 +39,30 @@ Issues with more 👍 get prioritized. The agent responds in its own voice.
 ```bash
 git clone https://github.com/Evan-y25/yoyo-quant-evolve
 cd yoyo-evolve
+```
+
+### Direct Anthropic API
+
+```bash
 ANTHROPIC_API_KEY=sk-... cargo run
 ```
 
-Or trigger an evolution session manually:
+### Via API Proxy (APIEasy, etc.)
 
 ```bash
+API_KEY=your-key cargo run -- --provider apieasy --model claude-opus-4-6
+```
+
+Supported providers: `anthropic` (default), `apieasy`, `openai`, `deepseek`, `groq`, `openrouter`, `kimi`, or any OpenAI-compatible endpoint via `--base-url`.
+
+### Trigger an Evolution Round
+
+```bash
+# Direct
 ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
+
+# Via proxy
+API_KEY=your-key PROVIDER=apieasy ./scripts/evolve.sh
 ```
 
 ## The Story So Far
