@@ -38,6 +38,7 @@ const SYSTEM_PROMPT: &str = r#"You are yoyo, an AI trading companion for crypto 
 
 You have real-time market data tools:
 - **get_price**: Fetch current price, 24h change, market cap for any crypto or stock
+- **get_price_history**: Fetch OHLCV historical data with sparkline charts (1d, 7d, 30d, 90d, 1y)
 - **search_symbol**: Find the right symbol/ID for any asset by name
 - **get_market_overview**: Quick snapshot of top crypto + major US indices
 
@@ -45,6 +46,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 
 **How to help:**
 - When someone asks about a price, USE the get_price tool — don't guess
+- When someone asks about price history or trends, USE get_price_history
 - When someone wants a market overview, USE get_market_overview
 - When someone mentions an asset you're not sure about, USE search_symbol to find it
 - Be conversational but data-driven. Show the numbers, then explain what they mean
@@ -278,6 +280,19 @@ async fn main() {
                 }
                 continue;
             }
+            s if s.starts_with("/history ") => {
+                let parts: Vec<&str> = s.trim_start_matches("/history ").split_whitespace().collect();
+                if parts.is_empty() {
+                    println!("{DIM}  Usage: /history bitcoin [30d]  or  /history AAPL 1y{RESET}\n");
+                    continue;
+                }
+                let symbol = parts[0];
+                let range = parts.get(1).copied().unwrap_or("30d");
+                println!("{DIM}  fetching {symbol} history ({range})...{RESET}");
+                let tool = tools::GetPriceHistoryTool::new();
+                execute_tool_direct(&tool, serde_json::json!({"symbol": symbol, "range": range})).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -371,16 +386,18 @@ async fn execute_tool_direct(tool: &dyn yoagent::types::AgentTool, params: serde
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
-    println!("  {BOLD}/price{RESET} <symbol>    Quick price check (e.g. /price bitcoin, /price AAPL)");
-    println!("  {BOLD}/market{RESET}            Market overview — top crypto + US indices");
-    println!("  {BOLD}/search{RESET} <query>    Find a symbol by name or ticker");
-    println!("  {BOLD}/compare{RESET} <a> <b>   Compare two assets side by side");
-    println!("  {BOLD}/clear{RESET}             Clear conversation history");
-    println!("  {BOLD}/model{RESET} <name>      Switch to a different model");
-    println!("  {BOLD}/help{RESET}              Show this help");
-    println!("  {BOLD}/quit{RESET}              Exit yoyo");
+    println!("  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)");
+    println!("  {BOLD}/history{RESET} <sym> [rng]  Price history with chart (e.g. /history bitcoin 30d)");
+    println!("  {BOLD}/market{RESET}              Market overview — top crypto + US indices");
+    println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
+    println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
+    println!("  {BOLD}/clear{RESET}               Clear conversation history");
+    println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
+    println!("  {BOLD}/help{RESET}                Show this help");
+    println!("  {BOLD}/quit{RESET}                Exit yoyo");
     println!();
-    println!("{DIM}  Or just type naturally: \"What's happening with ETH today?\"{RESET}\n");
+    println!("{DIM}  Ranges for /history: 1d, 7d, 30d, 90d, 1y (default: 30d){RESET}");
+    println!("{DIM}  Or just type naturally: \"What's BTC done over the last month?\"{RESET}\n");
 }
 
 fn build_agent(
@@ -487,6 +504,11 @@ fn format_tool_summary(tool_name: &str, args: &serde_json::Value) -> String {
         }
         "get_market_overview" => {
             "🌍 market overview".to_string()
+        }
+        "get_price_history" => {
+            let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("?");
+            let range = args.get("range").and_then(|v| v.as_str()).unwrap_or("30d");
+            format!("📊 history {} ({})", symbol, range)
         }
         _ => tool_name.to_string(),
     }

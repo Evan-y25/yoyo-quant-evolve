@@ -7,10 +7,12 @@ pub mod crypto;
 pub mod format;
 pub mod http;
 pub mod market_overview;
+pub mod price_history;
 pub mod search_symbol;
 
 pub use crypto::GetPriceTool;
 pub use market_overview::GetMarketOverviewTool;
+pub use price_history::GetPriceHistoryTool;
 pub use search_symbol::SearchSymbolTool;
 
 use yoagent::types::AgentTool;
@@ -21,5 +23,6 @@ pub fn trading_tools() -> Vec<Box<dyn AgentTool>> {
         Box::new(GetPriceTool::new()),
         Box::new(SearchSymbolTool::new()),
         Box::new(GetMarketOverviewTool::new()),
+        Box::new(GetPriceHistoryTool::new()),
     ]
 }
