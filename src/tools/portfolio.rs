@@ -363,6 +363,78 @@ fn is_leap_year(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
+/// Log a trade entry to TRADES.md for accountability tracking.
+/// This keeps TRADES.md in sync with the portfolio state.
+pub fn log_trade_to_journal(trade: &PaperTrade, action: &str) -> Result<(), String> {
+    let trades_file = "TRADES.md";
+    let content = std::fs::read_to_string(trades_file).unwrap_or_default();
+
+    // Find the trade log section
+    let entry = match action {
+        "open" => {
+            format!(
+                "\n### Trade #{} — {} {} (Paper)\n\
+                 - **Type:** paper\n\
+                 - **Action:** {}\n\
+                 - **Symbol:** {}\n\
+                 - **Entry price:** ${:.2}\n\
+                 - **Exit price:** open\n\
+                 - **Size:** {:.6} units\n\
+                 - **P&L:** open\n\
+                 - **My reasoning:** {}\n\
+                 - **Confidence at entry:** {}/10\n\
+                 - **Opened:** {}\n\n",
+                trade.id,
+                trade.symbol.to_uppercase(),
+                trade.side.to_uppercase(),
+                trade.side,
+                trade.symbol,
+                trade.entry_price,
+                trade.quantity,
+                if trade.reasoning.is_empty() { "(no reason given)" } else { &trade.reasoning },
+                trade.confidence,
+                trade.entry_time,
+            )
+        }
+        "close" => {
+            let pnl = trade.realized_pnl.unwrap_or(0.0);
+            let exit_price = trade.exit_price.unwrap_or(0.0);
+            let pnl_pct = trade.pnl_pct(exit_price);
+            format!(
+                "\n### Trade #{} — {} {} CLOSED\n\
+                 - **Exit price:** ${:.2}\n\
+                 - **P&L:** {}{:.2} ({:.2}%)\n\
+                 - **Closed:** {}\n\n",
+                trade.id,
+                trade.symbol.to_uppercase(),
+                trade.side.to_uppercase(),
+                exit_price,
+                if pnl >= 0.0 { "+$" } else { "-$" },
+                pnl.abs(),
+                pnl_pct,
+                trade.exit_time.as_deref().unwrap_or("unknown"),
+            )
+        }
+        _ => return Ok(()),
+    };
+
+    // Insert after "(No trades yet. Paper trading comes first.)" or at end of Trade Log section
+    let new_content = if content.contains("(No trades yet. Paper trading comes first.)") {
+        content.replace(
+            "(No trades yet. Paper trading comes first.)",
+            &format!("{}", entry.trim()),
+        )
+    } else if let Some(pos) = content.find("## Recurring Mistakes") {
+        let (before, after) = content.split_at(pos);
+        format!("{}{}\n{}", before, entry, after)
+    } else {
+        format!("{}\n{}", content, entry)
+    };
+
+    std::fs::write(trades_file, new_content)
+        .map_err(|e| format!("Failed to write TRADES.md: {}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

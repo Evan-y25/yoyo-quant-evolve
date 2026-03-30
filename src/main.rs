@@ -646,6 +646,10 @@ async fn handle_portfolio_command(input: &str) {
                         println!("{RED}  Error saving portfolio: {e}{RESET}\n");
                         return;
                     }
+                    // Log to TRADES.md
+                    if let Some(trade) = portfolio.trades.iter().find(|t| t.id == id) {
+                        let _ = tools::portfolio::log_trade_to_journal(trade, "open");
+                    }
                     let notional = quantity * price;
                     println!(
                         "\n{GREEN}  ✓ Trade #{id} opened: {side} {symbol} x{quantity} @ ${price:.2} (${notional:.2}){RESET}"
@@ -685,6 +689,10 @@ async fn handle_portfolio_command(input: &str) {
                     if let Err(e) = portfolio.save() {
                         println!("{RED}  Error saving portfolio: {e}{RESET}\n");
                         return;
+                    }
+                    // Log to TRADES.md
+                    if let Some(trade) = portfolio.trades.iter().find(|t| t.id == trade_id) {
+                        let _ = tools::portfolio::log_trade_to_journal(trade, "close");
                     }
                     let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
                     let pnl_sign = if pnl >= 0.0 { "+" } else { "" };
