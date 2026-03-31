@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.29.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.34.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -390,6 +390,10 @@ async fn main() {
             }
             s if s.starts_with("/risk ") => {
                 handle_risk_command(s).await;
+                continue;
+            }
+            s if s.starts_with("/size ") => {
+                handle_size_command(s).await;
                 continue;
             }
             "/dashboard" | "/dash" | "/status" => {
@@ -2025,9 +2029,109 @@ async fn handle_backtest_command(input: &str) {
     }
 }
 
+/// Handle /size command — position sizing calculator.
+///
+/// Usage:
+///   /size <symbol> <entry_price> <stop_loss> [risk_pct] [take_profit]
+///   /size bitcoin 87000 85000 2
+///   /size AAPL 200 190 1.5 220
+async fn handle_size_command(input: &str) {
+    let args = input.trim_start_matches("/size").trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.len() < 3 {
+        println!("{DIM}  Usage: /size <symbol> <entry_price> <stop_loss> [risk_pct] [take_profit]{RESET}");
+        println!("{DIM}  Example: /size bitcoin 87000 85000 2{RESET}");
+        println!("{DIM}  Example: /size AAPL 200 190 1.5 220{RESET}");
+        println!("{DIM}  risk_pct default: 2% of portfolio{RESET}\n");
+        return;
+    }
+
+    let symbol = parts[0];
+
+    // Check if parts[1] is "auto" or a number
+    let entry_price: f64 = if parts[1] == "auto" || parts[1] == "live" {
+        match fetch_live_price_for_trade(symbol).await {
+            Some(p) => p,
+            None => return,
+        }
+    } else {
+        match parts[1].parse() {
+            Ok(p) if p > 0.0 => p,
+            _ => {
+                println!("{RED}  Error: entry_price must be a positive number (or 'auto'){RESET}\n");
+                return;
+            }
+        }
+    };
+
+    let stop_loss: f64 = match parts[2].parse() {
+        Ok(p) if p > 0.0 => p,
+        _ => {
+            println!("{RED}  Error: stop_loss must be a positive number{RESET}\n");
+            return;
+        }
+    };
+
+    if entry_price == stop_loss {
+        println!("{RED}  Error: entry price and stop-loss cannot be the same{RESET}\n");
+        return;
+    }
+
+    let risk_pct: f64 = if parts.len() >= 4 {
+        match parts[3].parse() {
+            Ok(p) if p > 0.0 && p <= 100.0 => p,
+            _ => {
+                println!("{RED}  Error: risk_pct must be between 0 and 100{RESET}\n");
+                return;
+            }
+        }
+    } else {
+        2.0 // Default 2% risk
+    };
+
+    let take_profit: Option<f64> = if parts.len() >= 5 {
+        match parts[4].parse::<f64>() {
+            Ok(p) if p > 0.0 => Some(p),
+            _ => {
+                println!("{RED}  Error: take_profit must be a positive number{RESET}\n");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let portfolio = tools::portfolio::Portfolio::load();
+    let portfolio_value = portfolio.cash
+        + portfolio
+            .open_positions()
+            .iter()
+            .map(|t| t.notional_value())
+            .sum::<f64>();
+
+    match tools::risk::calculate_position_size(
+        portfolio_value,
+        entry_price,
+        stop_loss,
+        risk_pct,
+        take_profit,
+        symbol,
+    ) {
+        Ok(sizing) => {
+            println!();
+            println!("{}", sizing.format());
+        }
+        Err(e) => {
+            println!("{RED}  Error: {e}{RESET}\n");
+        }
+    }
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("  {BOLD}{CYAN}Market Data{RESET}");
     println!(
         "  {BOLD}/price{RESET} <symbol>      Quick price check (e.g. /price bitcoin, /price AAPL)"
     );
@@ -2036,12 +2140,15 @@ fn print_help() {
     println!("  {BOLD}/market{RESET}              Market overview — top crypto + US indices");
     println!("  {BOLD}/news{RESET} <query>        Latest news headlines (e.g. /news bitcoin, /news AAPL earnings)");
     println!("  {BOLD}/search{RESET} <query>      Find a symbol by name or ticker");
+    println!();
+    println!("  {BOLD}{CYAN}Analysis{RESET}");
     println!("  {BOLD}/compare{RESET} <a> <b>     Compare two assets side by side");
     println!("  {BOLD}/correlate{RESET} <a> <b> [range]  Correlation analysis between two assets");
     println!("  {BOLD}/mtf{RESET} <symbol>        Multi-timeframe analysis (7d + 30d + 90d)");
-    println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
-    println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
-    println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
+    println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
+    println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked");
+    println!();
+    println!("  {BOLD}{CYAN}Trading{RESET}");
     println!("  {BOLD}/portfolio{RESET}           Paper trading portfolio summary");
     println!(
         "  {BOLD}/pf buy{RESET} <sym> <qty> [price] [reason]  Open a buy (auto-fetches price!)"
@@ -2054,19 +2161,27 @@ fn print_help() {
     );
     println!("  {BOLD}/pf sl{RESET} <id> <price>         Set stop-loss on a trade");
     println!("  {BOLD}/pf tp{RESET} <id> <price>         Set take-profit on a trade");
+    println!("  {BOLD}/pf trail{RESET} <id> <pct>        Set trailing stop (e.g. /pf trail 1 5)");
     println!(
         "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
     );
     println!("  {BOLD}/pf stats{RESET}              Performance dashboard — stats by symbol, streaks, edge");
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
+    println!();
+    println!("  {BOLD}{CYAN}Risk Management{RESET}");
+    println!("  {BOLD}/risk{RESET} <sym> <qty> [price] [sl]  Risk assessment for a proposed trade");
+    println!("  {BOLD}/size{RESET} <sym> <entry> <sl> [risk%] [tp]  Position sizing calculator");
     println!("  {BOLD}/alert{RESET}               Show price alerts + check for triggers");
     println!("  {BOLD}/alert{RESET} <sym> above/below <price> [note]  Set a price alert");
     println!("  {BOLD}/alert rm{RESET} <id>        Remove an alert");
-    println!("  {BOLD}/alert clear{RESET}          Clear triggered alerts");
-    println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
-    println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked (e.g. /bt bitcoin compare 1y)");
-    println!("  {BOLD}/risk{RESET} <sym> <qty> [price] [sl]  Risk assessment for a proposed trade");
+    println!();
+    println!("  {BOLD}{CYAN}Tracking{RESET}");
+    println!("  {BOLD}/watchlist{RESET}           Show your watchlist with current prices");
+    println!("  {BOLD}/wl + {RESET}<symbol>       Add to watchlist (shorthand: /wl + bitcoin)");
+    println!("  {BOLD}/wl - {RESET}<symbol>       Remove from watchlist");
     println!("  {BOLD}/dashboard{RESET}           One-stop status: portfolio + watchlist + alerts");
+    println!();
+    println!("  {BOLD}{CYAN}System{RESET}");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");

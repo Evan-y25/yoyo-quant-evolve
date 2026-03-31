@@ -235,9 +235,239 @@ pub fn assess_trade_risk(
     }
 }
 
+/// Result of a position sizing calculation.
+#[derive(Debug, Clone)]
+pub struct PositionSizing {
+    /// Symbol being sized
+    pub symbol: String,
+    /// Entry price
+    pub entry_price: f64,
+    /// Stop-loss price
+    pub stop_loss: f64,
+    /// Risk per share/unit (distance from entry to stop)
+    pub risk_per_unit: f64,
+    /// Risk per share as percentage of entry
+    pub risk_per_unit_pct: f64,
+    /// Portfolio value used for calculation
+    pub portfolio_value: f64,
+    /// Risk percentage of portfolio
+    pub risk_pct: f64,
+    /// Dollar amount at risk
+    pub risk_amount: f64,
+    /// Calculated position size (number of units)
+    pub quantity: f64,
+    /// Notional value of the position
+    pub notional_value: f64,
+    /// Position as percentage of portfolio
+    pub position_pct: f64,
+    /// Potential reward (None if no take-profit)
+    pub reward_amount: Option<f64>,
+    /// Risk/reward ratio (None if no take-profit)
+    pub risk_reward: Option<f64>,
+}
+
+impl PositionSizing {
+    /// Format position sizing result for display.
+    pub fn format(&self) -> String {
+        use crate::tools::format::{format_currency, format_currency_unsigned, format_price};
+        let mut output = String::new();
+
+        output.push_str(&format!("  📐 Position Sizing: {}\n", self.symbol));
+        output.push_str("  ─────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  Entry Price:     {}\n",
+            format_price(self.entry_price)
+        ));
+        output.push_str(&format!(
+            "  Stop-Loss:       {} ({:.2}% away)\n",
+            format_price(self.stop_loss),
+            self.risk_per_unit_pct
+        ));
+        output.push_str(&format!(
+            "  Risk per Unit:   {}\n",
+            format_currency_unsigned(self.risk_per_unit)
+        ));
+        output.push_str("  ─────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  Portfolio Value:  {}\n",
+            format_currency_unsigned(self.portfolio_value)
+        ));
+        output.push_str(&format!(
+            "  Risk Budget:      {:.1}% → {}\n",
+            self.risk_pct,
+            format_currency_unsigned(self.risk_amount)
+        ));
+        output.push_str(&format!(
+            "  ✅ Position Size:  {:.6} units\n",
+            self.quantity
+        ));
+        output.push_str(&format!(
+            "  💰 Notional Value: {} ({:.1}% of portfolio)\n",
+            format_currency_unsigned(self.notional_value),
+            self.position_pct
+        ));
+
+        if let (Some(reward), Some(rr)) = (self.reward_amount, self.risk_reward) {
+            output.push_str("  ─────────────────────────────────────────\n");
+            output.push_str(&format!(
+                "  🎯 Potential Reward: {}\n",
+                format_currency(reward)
+            ));
+            output.push_str(&format!("  📊 Risk/Reward:      1:{:.2}\n", rr));
+            if rr >= 2.0 {
+                output.push_str("  ✅ Good R:R ratio (≥ 1:2).\n");
+            } else if rr >= 1.0 {
+                output.push_str("  🟡 Marginal R:R. Consider a wider target.\n");
+            } else {
+                output.push_str("  🔴 Poor R:R. Risk exceeds potential reward.\n");
+            }
+        }
+
+        output.push_str("  ─────────────────────────────────────────\n");
+        output.push_str("  ⚠️  Not financial advice. Always verify before trading.\n");
+        output
+    }
+}
+
+/// Calculate optimal position size based on risk budget.
+///
+/// The classic position sizing formula:
+///   Position Size = Risk Amount / Risk Per Unit
+/// Where:
+///   Risk Amount = Portfolio Value × Risk Percentage
+///   Risk Per Unit = |Entry Price - Stop-Loss Price|
+///
+/// Parameters:
+/// - `portfolio_value`: total portfolio value
+/// - `entry_price`: planned entry price
+/// - `stop_loss`: planned stop-loss price
+/// - `risk_pct`: what percentage of portfolio to risk (e.g., 2.0 = 2%)
+/// - `take_profit`: optional take-profit price (for R:R calculation)
+/// - `symbol`: asset symbol (for display)
+pub fn calculate_position_size(
+    portfolio_value: f64,
+    entry_price: f64,
+    stop_loss: f64,
+    risk_pct: f64,
+    take_profit: Option<f64>,
+    symbol: &str,
+) -> Result<PositionSizing, String> {
+    if portfolio_value <= 0.0 {
+        return Err("Portfolio value must be positive".into());
+    }
+    if entry_price <= 0.0 {
+        return Err("Entry price must be positive".into());
+    }
+    if stop_loss <= 0.0 {
+        return Err("Stop-loss must be positive".into());
+    }
+    if risk_pct <= 0.0 || risk_pct > 100.0 {
+        return Err("Risk percentage must be between 0 and 100".into());
+    }
+    if entry_price == stop_loss {
+        return Err("Entry price and stop-loss cannot be the same".into());
+    }
+
+    let risk_per_unit = (entry_price - stop_loss).abs();
+    let risk_per_unit_pct = (risk_per_unit / entry_price) * 100.0;
+    let risk_amount = portfolio_value * (risk_pct / 100.0);
+    let quantity = risk_amount / risk_per_unit;
+    let notional_value = quantity * entry_price;
+    let position_pct = (notional_value / portfolio_value) * 100.0;
+
+    // Calculate reward if take-profit provided
+    let (reward_amount, risk_reward) = if let Some(tp) = take_profit {
+        let reward_per_unit = (tp - entry_price).abs();
+        let total_reward = quantity * reward_per_unit;
+        let rr = if risk_per_unit > 0.0 {
+            reward_per_unit / risk_per_unit
+        } else {
+            0.0
+        };
+        (Some(total_reward), Some(rr))
+    } else {
+        (None, None)
+    };
+
+    Ok(PositionSizing {
+        symbol: symbol.to_string(),
+        entry_price,
+        stop_loss,
+        risk_per_unit,
+        risk_per_unit_pct,
+        portfolio_value,
+        risk_pct,
+        risk_amount,
+        quantity,
+        notional_value,
+        position_pct,
+        reward_amount,
+        risk_reward,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_position_sizing_basic() {
+        // Portfolio $100k, risk 2%, entry $100, SL $95
+        // Risk amount = $2000, Risk per unit = $5, Quantity = 400
+        let result =
+            calculate_position_size(100_000.0, 100.0, 95.0, 2.0, None, "AAPL").unwrap();
+        assert!((result.quantity - 400.0).abs() < 0.01);
+        assert!((result.risk_amount - 2_000.0).abs() < 0.01);
+        assert!((result.notional_value - 40_000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_position_sizing_with_take_profit() {
+        // Entry $100, SL $95, TP $110
+        // Risk per unit = $5, Reward per unit = $10, R:R = 2.0
+        let result =
+            calculate_position_size(100_000.0, 100.0, 95.0, 2.0, Some(110.0), "AAPL").unwrap();
+        assert!((result.risk_reward.unwrap() - 2.0).abs() < 0.01);
+        assert!(result.reward_amount.is_some());
+    }
+
+    #[test]
+    fn test_position_sizing_btc() {
+        // Portfolio $100k, risk 1%, entry $87000, SL $85000
+        // Risk amount = $1000, Risk per unit = $2000, Quantity = 0.5
+        let result =
+            calculate_position_size(100_000.0, 87_000.0, 85_000.0, 1.0, None, "bitcoin").unwrap();
+        assert!((result.quantity - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_position_sizing_format() {
+        let result =
+            calculate_position_size(100_000.0, 100.0, 95.0, 2.0, Some(110.0), "AAPL").unwrap();
+        let formatted = result.format();
+        assert!(formatted.contains("Position Sizing"));
+        assert!(formatted.contains("AAPL"));
+        assert!(formatted.contains("Risk Budget"));
+        assert!(formatted.contains("Risk/Reward"));
+    }
+
+    #[test]
+    fn test_position_sizing_invalid_inputs() {
+        assert!(calculate_position_size(0.0, 100.0, 95.0, 2.0, None, "X").is_err());
+        assert!(calculate_position_size(100_000.0, 0.0, 95.0, 2.0, None, "X").is_err());
+        assert!(calculate_position_size(100_000.0, 100.0, 100.0, 2.0, None, "X").is_err());
+        assert!(calculate_position_size(100_000.0, 100.0, 95.0, 0.0, None, "X").is_err());
+        assert!(calculate_position_size(100_000.0, 100.0, 95.0, 101.0, None, "X").is_err());
+    }
+
+    #[test]
+    fn test_position_sizing_short() {
+        // Short: entry $100, SL $105 (above), risk per unit = $5
+        let result =
+            calculate_position_size(100_000.0, 100.0, 105.0, 2.0, None, "AAPL").unwrap();
+        assert!((result.quantity - 400.0).abs() < 0.01);
+        assert!((result.risk_per_unit - 5.0).abs() < 0.01);
+    }
 
     #[test]
     fn test_small_position_low_risk() {
