@@ -58,10 +58,15 @@ impl TradingPattern {
             PatternCategory::NoStopLoss => "No Stop-Loss",
             PatternCategory::Concentration => "Concentration",
         };
-        format!(
+        let mut result = format!(
             "  {} [{}] {}\n    → {}",
             severity_emoji, category_label, self.description, self.suggestion,
-        )
+        );
+        if !self.trade_ids.is_empty() {
+            let ids: Vec<String> = self.trade_ids.iter().map(|id| format!("#{}", id)).collect();
+            result.push_str(&format!("\n    📋 Trades: {}", ids.join(", ")));
+        }
+        result
     }
 }
 
