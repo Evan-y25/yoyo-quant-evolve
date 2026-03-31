@@ -625,6 +625,29 @@ pub async fn handle_portfolio_command(input: &str) {
             let report = tools::trade_analysis::analyze_trades(&portfolio);
             println!("\n{}", report.format());
         }
+        Some("export") | Some("csv") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            let filename = if parts.len() >= 2 {
+                parts[1].to_string()
+            } else {
+                "trades_export.csv".to_string()
+            };
+            let csv = tools::portfolio::export_trades_csv(&portfolio);
+            match std::fs::write(&filename, &csv) {
+                Ok(_) => {
+                    println!(
+                        "{GREEN}  ✓ Exported {} trades to {filename}{RESET}",
+                        portfolio.trades.len()
+                    );
+                    println!(
+                        "{DIM}  Open in Excel, Google Sheets, or any spreadsheet app.{RESET}\n"
+                    );
+                }
+                Err(e) => {
+                    println!("{RED}  Error writing file: {e}{RESET}\n");
+                }
+            }
+        }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
             if let Err(e) = portfolio.save() {
@@ -1986,7 +2009,9 @@ pub async fn handle_scan_command(input: &str) {
         // Default to watchlist
         let wl = tools::watchlist::Watchlist::load();
         if wl.is_empty() {
-            println!("\n{DIM}  📋 Your watchlist is empty. Add symbols or specify them directly:{RESET}");
+            println!(
+                "\n{DIM}  📋 Your watchlist is empty. Add symbols or specify them directly:{RESET}"
+            );
             println!("{DIM}  /scan bitcoin ethereum solana AAPL MSFT{RESET}");
             println!("{DIM}  Or: /wl + bitcoin  to add to watchlist first{RESET}\n");
             return;
@@ -2001,7 +2026,10 @@ pub async fn handle_scan_command(input: &str) {
         return;
     }
 
-    println!("{DIM}  Scanning {} assets for signals (30d data)...{RESET}", symbols.len());
+    println!(
+        "{DIM}  Scanning {} assets for signals (30d data)...{RESET}",
+        symbols.len()
+    );
 
     // Fetch price data for all symbols concurrently
     let futures: Vec<_> = symbols
@@ -2080,7 +2108,10 @@ pub async fn handle_scan_command(input: &str) {
 
     // Print results
     println!();
-    println!("{BOLD}{CYAN}  🔍 Signal Scanner ({} assets){RESET}", scan_results.len());
+    println!(
+        "{BOLD}{CYAN}  🔍 Signal Scanner ({} assets){RESET}",
+        scan_results.len()
+    );
     println!("{DIM}  ═════════════════════════════════════════════════════════════{RESET}");
     println!(
         "{BOLD}  {:<16} {:>10} {:>8} {:>5}  {:>6}  {}{RESET}",

@@ -1076,6 +1076,61 @@ fn current_timestamp() -> String {
     super::format::current_timestamp()
 }
 
+/// Export all trades as CSV for spreadsheet analysis.
+///
+/// Columns: ID, Symbol, Side, Quantity, Entry Price, Exit Price, P&L, P&L %, Confidence,
+/// Stop Loss, Take Profit, Entry Time, Exit Time, Reasoning, Status
+pub fn export_trades_csv(portfolio: &Portfolio) -> String {
+    let mut csv = String::from(
+        "ID,Symbol,Side,Quantity,Entry Price,Exit Price,P&L,P&L %,Confidence,Stop Loss,Take Profit,Entry Time,Exit Time,Reasoning,Status\n"
+    );
+
+    for trade in &portfolio.trades {
+        let exit_price = trade
+            .exit_price
+            .map_or(String::new(), |p| format!("{:.2}", p));
+        let pnl = trade
+            .realized_pnl
+            .map_or(String::new(), |p| format!("{:.2}", p));
+        let pnl_pct = if let Some(exit) = trade.exit_price {
+            format!("{:.2}", trade.pnl_pct(exit))
+        } else {
+            String::new()
+        };
+        let sl = trade
+            .stop_loss
+            .map_or(String::new(), |p| format!("{:.2}", p));
+        let tp = trade
+            .take_profit
+            .map_or(String::new(), |p| format!("{:.2}", p));
+        let exit_time = trade.exit_time.as_deref().unwrap_or("");
+        let status = if trade.is_open() { "open" } else { "closed" };
+        // Escape reasoning for CSV (double-quote any quotes, wrap in quotes)
+        let reasoning = trade.reasoning.replace('"', "\"\"");
+
+        csv.push_str(&format!(
+            "{},{},{},{:.6},{:.2},{},{},{},{},{},{},{},{},\"{}\",{}\n",
+            trade.id,
+            trade.symbol,
+            trade.side,
+            trade.quantity,
+            trade.entry_price,
+            exit_price,
+            pnl,
+            pnl_pct,
+            trade.confidence,
+            sl,
+            tp,
+            trade.entry_time,
+            exit_time,
+            reasoning,
+            status,
+        ));
+    }
+
+    csv
+}
+
 /// Log a trade entry to TRADES.md for accountability tracking.
 /// This keeps TRADES.md in sync with the portfolio state.
 pub fn log_trade_to_journal(trade: &PaperTrade, action: &str) -> Result<(), String> {

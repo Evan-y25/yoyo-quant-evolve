@@ -350,8 +350,11 @@ async fn main() {
                 let range = parts.get(1).copied().unwrap_or("30d");
                 println!("{DIM}  fetching {symbol} history ({range})...{RESET}");
                 let tool = tools::GetPriceHistoryTool::new();
-                commands::execute_tool_direct(&tool, serde_json::json!({"symbol": symbol, "range": range}))
-                    .await;
+                commands::execute_tool_direct(
+                    &tool,
+                    serde_json::json!({"symbol": symbol, "range": range}),
+                )
+                .await;
                 continue;
             }
             s if s.starts_with("/news") => {
