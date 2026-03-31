@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.27.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.29.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -390,6 +390,10 @@ async fn main() {
             }
             s if s.starts_with("/risk ") => {
                 handle_risk_command(s).await;
+                continue;
+            }
+            "/dashboard" | "/dash" | "/status" => {
+                handle_dashboard_command().await;
                 continue;
             }
             "/help" | "/?" => {
@@ -1668,6 +1672,181 @@ async fn handle_risk_command(input: &str) {
     println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
 }
 
+/// Handle /dashboard, /dash, /status — unified status overview.
+///
+/// Shows portfolio balance, open positions, watchlist prices, active alerts,
+/// and recent trade stats in one view.
+async fn handle_dashboard_command() {
+    println!();
+    println!("{BOLD}{CYAN}  ══════════════════════════════════════════{RESET}");
+    println!("{BOLD}{CYAN}  📊 yoyo Dashboard{RESET}");
+    println!("{BOLD}{CYAN}  ══════════════════════════════════════════{RESET}");
+
+    // 1. Portfolio Summary
+    let portfolio = tools::portfolio::Portfolio::load();
+    let open = portfolio.open_positions();
+    let closed = portfolio.closed_positions();
+    let realized_pnl = portfolio.total_realized_pnl();
+
+    println!();
+    println!("{BOLD}  💼 Portfolio{RESET}");
+    println!(
+        "{DIM}  ─────────────────────────────────────────{RESET}"
+    );
+    println!(
+        "  Cash: {}  |  Open: {}  |  Closed: {}",
+        tools::format::format_currency_unsigned(portfolio.cash),
+        open.len(),
+        closed.len(),
+    );
+    if !closed.is_empty() {
+        let wr = portfolio.win_rate().unwrap_or(0.0);
+        println!(
+            "  Realized P&L: {}  |  Win Rate: {:.1}%",
+            tools::format::format_currency(realized_pnl),
+            wr,
+        );
+    }
+
+    // 2. Open Positions with live prices
+    if !open.is_empty() {
+        println!();
+        println!("{BOLD}  📈 Open Positions{RESET}");
+        println!(
+            "{DIM}  ─────────────────────────────────────────{RESET}"
+        );
+
+        // Gather unique symbols for price fetching
+        let symbols: std::collections::HashSet<String> =
+            open.iter().map(|t| t.symbol.clone()).collect();
+        let futures: Vec<_> = symbols
+            .into_iter()
+            .map(|sym| {
+                let s = sym.clone();
+                async move {
+                    let result = tools::fetch_live_price(&s).await;
+                    (s, result)
+                }
+            })
+            .collect();
+        let results = futures::future::join_all(futures).await;
+        let price_map: std::collections::HashMap<String, f64> = results
+            .into_iter()
+            .filter_map(|(sym, r)| r.ok().map(|(price, _)| (sym, price)))
+            .collect();
+
+        let mut total_unrealized = 0.0;
+        for trade in &open {
+            let pnl_info = if let Some(&current_price) = price_map.get(&trade.symbol) {
+                let upnl = trade.unrealized_pnl(current_price);
+                total_unrealized += upnl;
+                let pnl_pct = trade.pnl_pct(current_price);
+                let emoji = if upnl >= 0.0 { "🟢" } else { "🔴" };
+                format!(
+                    "{} {} ({}{:.2}%)",
+                    emoji,
+                    tools::format::format_currency(upnl),
+                    if pnl_pct >= 0.0 { "+" } else { "" },
+                    pnl_pct,
+                )
+            } else {
+                "⚪ (no price)".to_string()
+            };
+            println!(
+                "  #{} {} {} x{:.4} @ {} — {}",
+                trade.id,
+                trade.side.to_uppercase(),
+                trade.symbol,
+                trade.quantity,
+                tools::format::format_currency_unsigned(trade.entry_price),
+                pnl_info,
+            );
+        }
+        println!(
+            "  {DIM}Unrealized total: {}{RESET}",
+            tools::format::format_currency(total_unrealized),
+        );
+
+        // Check for SL/TP triggers
+        let triggered = portfolio.check_stop_loss_take_profit(&price_map);
+        if !triggered.is_empty() {
+            for (trade_id, _price, trigger_type) in &triggered {
+                println!(
+                    "  {YELLOW}⚡ Trade #{} {} triggered!{RESET}",
+                    trade_id, trigger_type
+                );
+            }
+        }
+    }
+
+    // 3. Watchlist
+    let wl = tools::watchlist::Watchlist::load();
+    if !wl.is_empty() {
+        println!();
+        println!("{BOLD}  📋 Watchlist ({} assets){RESET}", wl.len());
+        println!(
+            "{DIM}  ─────────────────────────────────────────{RESET}"
+        );
+
+        let symbols: Vec<String> = wl.symbols.iter().cloned().collect();
+        let futures: Vec<_> = symbols
+            .iter()
+            .map(|sym| {
+                let s = sym.clone();
+                async move {
+                    let result = tools::fetch_live_price(&s).await;
+                    (s, result)
+                }
+            })
+            .collect();
+        let results = futures::future::join_all(futures).await;
+
+        for (sym, result) in &results {
+            match result {
+                Ok((price, name)) => {
+                    println!(
+                        "  {} — {}",
+                        name,
+                        tools::format::format_price(*price),
+                    );
+                }
+                Err(_) => {
+                    println!("  {sym} — ❌ error");
+                }
+            }
+        }
+    }
+
+    // 4. Active Alerts
+    let am = tools::alerts::AlertManager::load();
+    let active = am.active_alerts();
+    if !active.is_empty() {
+        println!();
+        println!("{BOLD}  🔔 Active Alerts ({} pending){RESET}", active.len());
+        println!(
+            "{DIM}  ─────────────────────────────────────────{RESET}"
+        );
+        for alert in &active {
+            let arrow = if alert.condition == "above" {
+                "↑"
+            } else {
+                "↓"
+            };
+            println!(
+                "  #{} {} {} {}",
+                alert.id,
+                alert.symbol,
+                arrow,
+                tools::format::format_currency_unsigned(alert.target_price),
+            );
+        }
+    }
+
+    println!();
+    println!("{BOLD}{CYAN}  ══════════════════════════════════════════{RESET}");
+    println!("{DIM}  Commands: /portfolio | /watchlist | /alert | /help{RESET}\n");
+}
+
 /// Handle /backtest commands.
 ///
 /// Usage:
@@ -1803,6 +1982,7 @@ fn print_help() {
     println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
     println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked (e.g. /bt bitcoin compare 1y)");
     println!("  {BOLD}/risk{RESET} <sym> <qty> [price] [sl]  Risk assessment for a proposed trade");
+    println!("  {BOLD}/dashboard{RESET}           One-stop status: portfolio + watchlist + alerts");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
