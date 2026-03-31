@@ -1704,7 +1704,7 @@ async fn handle_backtest_command(input: &str) {
         Some(s) => s,
         None => {
             println!("{RED}  Unknown strategy: '{strategy_str}'{RESET}");
-            println!("{DIM}  Available: sma, sma_10_30, rsi, rsi_14_25_75{RESET}\n");
+            println!("{DIM}  Available: sma, sma_10_30, rsi, rsi_14_25_75, bb{RESET}\n");
             return;
         }
     };

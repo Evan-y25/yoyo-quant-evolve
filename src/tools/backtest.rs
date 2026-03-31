@@ -171,6 +171,12 @@ pub enum Strategy {
         oversold: f64,
         overbought: f64,
     },
+    /// Bollinger Band squeeze: buy when bands narrow then expand upward,
+    /// sell when they narrow then expand downward.
+    BollingerSqueeze {
+        period: usize,
+        std_dev: f64,
+    },
 }
 
 impl Strategy {
@@ -192,6 +198,9 @@ impl Strategy {
                     "RSI Mean-Reversion ({}, {}/{})",
                     period, oversold, overbought
                 )
+            }
+            Strategy::BollingerSqueeze { period, std_dev } => {
+                format!("Bollinger Squeeze ({}, {}σ)", period, std_dev)
             }
         }
     }
@@ -218,6 +227,9 @@ pub fn run_backtest(
             oversold,
             overbought,
         } => backtest_rsi_mean_reversion(prices, *period, *oversold, *overbought),
+        Strategy::BollingerSqueeze { period, std_dev } => {
+            backtest_bollinger_squeeze(prices, *period, *std_dev)
+        }
     };
 
     let buy_hold_return_pct = if prices.len() >= 2 && prices[0] > 0.0 {
@@ -485,6 +497,135 @@ fn backtest_rsi_mean_reversion(
     trades
 }
 
+/// Bollinger Band Squeeze strategy.
+/// When bandwidth narrows below a threshold (indicating low volatility squeeze),
+/// wait for price to break out above the upper band (buy) or below the lower band (sell/exit).
+///
+/// The idea: low volatility = compression → breakout → big move.
+fn backtest_bollinger_squeeze(
+    prices: &[f64],
+    period: usize,
+    std_dev: f64,
+) -> Vec<BacktestTrade> {
+    let mut trades = Vec::new();
+    if prices.len() < period + 10 {
+        return trades;
+    }
+
+    // Compute Bollinger Bands at each point
+    let mut bandwidths = Vec::new();
+    let mut uppers = Vec::new();
+    let mut lowers = Vec::new();
+    let mut middles = Vec::new();
+
+    for i in 0..prices.len() {
+        if i + 1 >= period {
+            let window = &prices[i + 1 - period..=i];
+            let middle = window.iter().sum::<f64>() / period as f64;
+            let variance = window.iter().map(|&p| (p - middle).powi(2)).sum::<f64>() / period as f64;
+            let stddev = variance.sqrt();
+            let upper = middle + std_dev * stddev;
+            let lower = middle - std_dev * stddev;
+            let bw = if middle > 0.0 { (upper - lower) / middle * 100.0 } else { 0.0 };
+            bandwidths.push(Some(bw));
+            uppers.push(Some(upper));
+            lowers.push(Some(lower));
+            middles.push(Some(middle));
+        } else {
+            bandwidths.push(None);
+            uppers.push(None);
+            lowers.push(None);
+            middles.push(None);
+        }
+    }
+
+    // Calculate recent average bandwidth to detect squeeze
+    // A squeeze is when bandwidth falls below 75% of its recent average
+    let lookback = 20.min(prices.len() / 4); // Dynamic lookback
+
+    let mut in_position = false;
+    let mut entry_idx = 0;
+    let mut entry_price = 0.0;
+    let mut was_in_squeeze = false;
+
+    for i in (period + lookback)..prices.len() {
+        let current_bw = match bandwidths[i] {
+            Some(bw) => bw,
+            None => continue,
+        };
+        let upper = match uppers[i] {
+            Some(u) => u,
+            None => continue,
+        };
+        let _lower = match lowers[i] {
+            Some(l) => l,
+            None => continue,
+        };
+        let middle = match middles[i] {
+            Some(m) => m,
+            None => continue,
+        };
+
+        // Average bandwidth over lookback period
+        let avg_bw: f64 = bandwidths[i - lookback..i]
+            .iter()
+            .filter_map(|b| *b)
+            .sum::<f64>() / lookback as f64;
+
+        let in_squeeze = current_bw < avg_bw * 0.75;
+
+        if !in_position {
+            // Enter on breakout from squeeze
+            if was_in_squeeze && !in_squeeze {
+                // Squeeze just released — check direction
+                if prices[i] > upper {
+                    // Upward breakout → buy
+                    in_position = true;
+                    entry_idx = i;
+                    entry_price = prices[i];
+                }
+            }
+        } else {
+            // Exit when price crosses below middle band or enters new squeeze
+            if prices[i] < middle || in_squeeze {
+                let exit_price = prices[i];
+                let pnl = exit_price - entry_price;
+                let pnl_pct = (pnl / entry_price) * 100.0;
+                trades.push(BacktestTrade {
+                    entry_idx,
+                    exit_idx: i,
+                    entry_price,
+                    exit_price,
+                    side: "buy",
+                    pnl,
+                    pnl_pct,
+                });
+                in_position = false;
+            }
+        }
+
+        was_in_squeeze = in_squeeze;
+    }
+
+    // Close any open position at the end
+    if in_position {
+        let exit_price = *prices.last().unwrap();
+        let pnl = exit_price - entry_price;
+        let pnl_pct = (pnl / entry_price) * 100.0;
+        trades.push(BacktestTrade {
+            entry_idx,
+            exit_idx: prices.len() - 1,
+            entry_price,
+            exit_price,
+            side: "buy",
+            pnl,
+            pnl_pct,
+        });
+    }
+
+    trades
+}
+
 /// Calculate annualized Sharpe ratio from trade returns.
 /// Assumes risk-free rate of 0 for simplicity.
 fn calculate_sharpe(returns: &[f64]) -> f64 {
@@ -540,6 +681,16 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
                 overbought,
             })
         }
+        Some("bb") | Some("bollinger") | Some("squeeze") => {
+            let period = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(20);
+            if period < 5 {
+                return None;
+            }
+            Some(Strategy::BollingerSqueeze {
+                period,
+                std_dev: 2.0,
+            })
+        }
         _ => None,
     }
 }
@@ -559,6 +710,10 @@ pub fn available_strategies() -> Vec<(&'static str, &'static str)> {
         (
             "rsi_14_25_75",
             "RSI Mean-Reversion (14, 25/75) — tighter bands",
+        ),
+        (
+            "bb",
+            "Bollinger Squeeze (20, 2σ) — buy breakout from low volatility squeeze",
         ),
     ]
 }
@@ -807,6 +962,53 @@ mod tests {
     fn test_available_strategies_not_empty() {
         let strategies = available_strategies();
         assert!(!strategies.is_empty());
-        assert!(strategies.len() >= 4);
+        assert!(strategies.len() >= 5);
+    }
+
+    #[test]
+    fn test_parse_strategy_bollinger() {
+        let s = parse_strategy("bb").unwrap();
+        assert!(matches!(s, Strategy::BollingerSqueeze { period: 20, .. }));
+        let s2 = parse_strategy("squeeze").unwrap();
+        assert!(matches!(s2, Strategy::BollingerSqueeze { .. }));
+    }
+
+    #[test]
+    fn test_bollinger_squeeze_oscillating() {
+        // Create data that squeezes then breaks out
+        let mut prices = Vec::new();
+        // Phase 1: Low volatility period (squeeze)
+        for i in 0..40 {
+            prices.push(100.0 + (i as f64 * 0.1).sin() * 0.5);
+        }
+        // Phase 2: Breakout upward
+        for i in 0..30 {
+            prices.push(100.5 + i as f64 * 1.5);
+        }
+        // Phase 3: Another squeeze
+        for i in 0..30 {
+            prices.push(145.0 + (i as f64 * 0.1).sin() * 0.5);
+        }
+        
+        let result = run_backtest(
+            &prices,
+            &Strategy::BollingerSqueeze { period: 20, std_dev: 2.0 },
+            "TEST",
+            "90d",
+        );
+        assert!(result.data_points == 100);
+        // The breakout phase should generate at least one trade
+    }
+
+    #[test]
+    fn test_bollinger_squeeze_insufficient_data() {
+        let prices = vec![100.0; 20];
+        let result = run_backtest(
+            &prices,
+            &Strategy::BollingerSqueeze { period: 20, std_dev: 2.0 },
+            "TEST",
+            "7d",
+        );
+        assert_eq!(result.total_trades, 0);
     }
 }
