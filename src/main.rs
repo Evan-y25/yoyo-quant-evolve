@@ -967,6 +967,98 @@ async fn handle_portfolio_command(input: &str) {
                 println!("{GREEN}  ✓ Take-profit set on trade #{trade_id}: ${tp:.2} (target: +${reward:.2}){RESET}\n");
             }
         }
+        Some("trail") | Some("trailing") | Some("tsl") => {
+            if parts.len() < 3 {
+                println!("{DIM}  Usage: /pf trail <trade_id> <percent>{RESET}");
+                println!("{DIM}  Example: /pf trail 1 5     (5% trailing stop){RESET}");
+                println!("{DIM}  Example: /pf trail 1 3.5   (3.5% trailing stop){RESET}");
+                println!("{DIM}  Use /pf trail <trade_id> off to remove{RESET}");
+                println!("{DIM}  The stop-loss ratchets up as price moves in your favor.{RESET}\n");
+                return;
+            }
+            let trade_id: u32 = match parts[1].trim_start_matches('#').parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("{RED}  Error: trade_id must be a number{RESET}\n");
+                    return;
+                }
+            };
+            let mut portfolio = tools::portfolio::Portfolio::load();
+            if parts[2] == "off" || parts[2] == "none" || parts[2] == "remove" {
+                match portfolio
+                    .trades
+                    .iter_mut()
+                    .find(|t| t.id == trade_id && t.is_open())
+                {
+                    Some(t) => {
+                        t.trailing_stop_pct = None;
+                    }
+                    None => {
+                        println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
+                        return;
+                    }
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                println!("{GREEN}  ✓ Trailing stop removed from trade #{trade_id}{RESET}\n");
+            } else {
+                let trail_pct: f64 = match parts[2].parse() {
+                    Ok(p) if p > 0.0 && p < 100.0 => p,
+                    _ => {
+                        println!("{RED}  Error: percent must be a positive number (e.g., 5 for 5%){RESET}\n");
+                        return;
+                    }
+                };
+                match portfolio
+                    .trades
+                    .iter_mut()
+                    .find(|t| t.id == trade_id && t.is_open())
+                {
+                    Some(t) => {
+                        t.trailing_stop_pct = Some(trail_pct);
+                        // Initialize highest/lowest price seen if not already set
+                        if t.highest_price_seen.is_none() {
+                            t.highest_price_seen = Some(t.entry_price);
+                        }
+                        if t.lowest_price_seen.is_none() {
+                            t.lowest_price_seen = Some(t.entry_price);
+                        }
+                        // Set initial trailing SL based on entry price
+                        let initial_sl = if t.side == "buy" {
+                            t.entry_price * (1.0 - trail_pct / 100.0)
+                        } else {
+                            t.entry_price * (1.0 + trail_pct / 100.0)
+                        };
+                        // Only set if no SL or trailing SL is better
+                        let current_sl = t.stop_loss;
+                        if t.side == "buy" {
+                            if current_sl.is_none() || current_sl.unwrap() < initial_sl {
+                                t.stop_loss = Some(initial_sl);
+                            }
+                        } else if current_sl.is_none() || current_sl.unwrap() > initial_sl {
+                            t.stop_loss = Some(initial_sl);
+                        }
+                    }
+                    None => {
+                        println!("{RED}  Error: No open trade found with ID #{trade_id}{RESET}\n");
+                        return;
+                    }
+                }
+                if let Err(e) = portfolio.save() {
+                    println!("{RED}  Error saving: {e}{RESET}\n");
+                    return;
+                }
+                let trade = portfolio.trades.iter().find(|t| t.id == trade_id).unwrap();
+                println!("{GREEN}  ✓ Trailing stop set on trade #{trade_id}: {trail_pct}%{RESET}");
+                println!(
+                    "{DIM}    Current SL: ${:.2}{RESET}",
+                    trade.stop_loss.unwrap_or(0.0)
+                );
+                println!("{DIM}    The stop-loss will ratchet up as the price moves in your favor.{RESET}\n");
+            }
+        }
         Some("history") | Some("log") | Some("trades") => {
             let portfolio = tools::portfolio::Portfolio::load();
             let limit = if parts.len() >= 2 {
@@ -1020,10 +1112,10 @@ async fn handle_portfolio_command(input: &str) {
                     .filter_map(|(sym, r)| r.ok().map(|(price, _)| (sym, price)))
                     .collect();
 
-                // Check for stop-loss / take-profit triggers
-                let triggered = portfolio.check_stop_loss_take_profit(&price_map);
+                // Check for stop-loss / take-profit / trailing-stop triggers
+                let mut portfolio_mut = portfolio.clone();
+                let triggered = portfolio_mut.check_stop_loss_take_profit(&price_map);
                 if !triggered.is_empty() {
-                    let mut portfolio_mut = portfolio.clone();
                     for (trade_id, trigger_price, trigger_type) in &triggered {
                         match portfolio_mut.close_trade(*trade_id, *trigger_price) {
                             Ok(pnl) => {
@@ -1054,7 +1146,11 @@ async fn handle_portfolio_command(input: &str) {
                     // Use the updated portfolio for the summary
                     println!("{}", portfolio_mut.summary_with_prices(&price_map));
                 } else {
-                    println!("\n{}", portfolio.summary_with_prices(&price_map));
+                    // Save updated trailing stop state even if nothing triggered
+                    if let Err(e) = portfolio_mut.save() {
+                        println!("{RED}  Error saving portfolio: {e}{RESET}");
+                    }
+                    println!("\n{}", portfolio_mut.summary_with_prices(&price_map));
                 }
             }
         }
@@ -1683,9 +1779,9 @@ async fn handle_dashboard_command() {
     println!("{BOLD}{CYAN}  ══════════════════════════════════════════{RESET}");
 
     // 1. Portfolio Summary
-    let portfolio = tools::portfolio::Portfolio::load();
-    let open = portfolio.open_positions();
-    let closed = portfolio.closed_positions();
+    let mut portfolio = tools::portfolio::Portfolio::load();
+    let open = portfolio.open_positions().to_vec();
+    let closed = portfolio.closed_positions().to_vec();
     let realized_pnl = portfolio.total_realized_pnl();
 
     println!();

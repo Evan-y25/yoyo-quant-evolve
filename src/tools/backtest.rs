@@ -1520,7 +1520,11 @@ mod tests {
     #[test]
     fn test_all_default_strategies() {
         let strategies = all_default_strategies();
-        assert_eq!(strategies.len(), 7, "Should have 7 default strategies (including Stochastic)");
+        assert_eq!(
+            strategies.len(),
+            7,
+            "Should have 7 default strategies (including Stochastic)"
+        );
         // Verify all names are non-empty
         for s in &strategies {
             assert!(!s.name().is_empty());

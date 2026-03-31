@@ -53,6 +53,19 @@ pub struct PaperTrade {
     /// Take-profit price (auto-close if price hits this level)
     #[serde(default)]
     pub take_profit: Option<f64>,
+    /// Trailing stop distance as a percentage (e.g., 5.0 = 5%).
+    /// When set, the stop-loss automatically ratchets upward (for buys)
+    /// or downward (for shorts) as the price moves favorably.
+    #[serde(default)]
+    pub trailing_stop_pct: Option<f64>,
+    /// The highest price seen since opening (for trailing stop on buys).
+    /// Updated each time prices are checked.
+    #[serde(default)]
+    pub highest_price_seen: Option<f64>,
+    /// The lowest price seen since opening (for trailing stop on shorts).
+    /// Updated each time prices are checked.
+    #[serde(default)]
+    pub lowest_price_seen: Option<f64>,
 }
 
 impl PaperTrade {
@@ -240,6 +253,9 @@ impl Portfolio {
             realized_pnl: None,
             stop_loss,
             take_profit,
+            trailing_stop_pct: None,
+            highest_price_seen: Some(price),
+            lowest_price_seen: Some(price),
         };
 
         self.trades.push(trade);
@@ -275,20 +291,54 @@ impl Portfolio {
         Ok(pnl)
     }
 
-    /// Check if any open trades should be closed based on stop-loss or take-profit.
+    /// Check if any open trades should be closed based on stop-loss, trailing stop, or take-profit.
+    /// Also updates trailing stop state (highest/lowest price seen, ratcheted SL).
     /// Returns a list of (trade_id, trigger_price, trigger_type) for trades that should close.
     pub fn check_stop_loss_take_profit(
-        &self,
+        &mut self,
         price_map: &std::collections::HashMap<String, f64>,
     ) -> Vec<(u32, f64, &'static str)> {
         let mut triggered = Vec::new();
 
-        for trade in &self.trades {
+        for trade in &mut self.trades {
             if !trade.is_open() {
                 continue;
             }
             if let Some(&current_price) = price_map.get(&trade.symbol) {
-                // Check stop-loss
+                // Update trailing stop if configured
+                if let Some(trail_pct) = trade.trailing_stop_pct {
+                    if trade.side == "buy" {
+                        // Track highest price seen
+                        let highest = trade.highest_price_seen.unwrap_or(trade.entry_price);
+                        if current_price > highest {
+                            trade.highest_price_seen = Some(current_price);
+                        }
+                        let best = trade.highest_price_seen.unwrap_or(trade.entry_price);
+                        // Trailing SL = best price * (1 - trail_pct/100)
+                        let trailing_sl = best * (1.0 - trail_pct / 100.0);
+                        // Only ratchet upward — never lower the stop
+                        let current_sl = trade.stop_loss.unwrap_or(0.0);
+                        if trailing_sl > current_sl {
+                            trade.stop_loss = Some(trailing_sl);
+                        }
+                    } else {
+                        // Short: track lowest price seen
+                        let lowest = trade.lowest_price_seen.unwrap_or(trade.entry_price);
+                        if current_price < lowest {
+                            trade.lowest_price_seen = Some(current_price);
+                        }
+                        let best = trade.lowest_price_seen.unwrap_or(trade.entry_price);
+                        // Trailing SL = best price * (1 + trail_pct/100)
+                        let trailing_sl = best * (1.0 + trail_pct / 100.0);
+                        // Only ratchet downward — never raise the stop for shorts
+                        let current_sl = trade.stop_loss.unwrap_or(f64::MAX);
+                        if trailing_sl < current_sl {
+                            trade.stop_loss = Some(trailing_sl);
+                        }
+                    }
+                }
+
+                // Check stop-loss (including trailing stop)
                 if let Some(sl) = trade.stop_loss {
                     let triggered_sl = if trade.side == "buy" {
                         current_price <= sl
@@ -296,7 +346,12 @@ impl Portfolio {
                         current_price >= sl
                     };
                     if triggered_sl {
-                        triggered.push((trade.id, current_price, "stop-loss"));
+                        let trigger_type = if trade.trailing_stop_pct.is_some() {
+                            "trailing-stop"
+                        } else {
+                            "stop-loss"
+                        };
+                        triggered.push((trade.id, current_price, trigger_type));
                         continue; // Don't check TP if SL triggered
                     }
                 }
