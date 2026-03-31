@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.25.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.27.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 

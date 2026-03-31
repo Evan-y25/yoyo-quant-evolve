@@ -584,7 +584,7 @@ impl Portfolio {
     /// Generate a performance dashboard with stats by symbol, time analysis, and streaks.
     /// This helps traders understand which assets they trade best and identify patterns.
     pub fn performance_report(&self) -> String {
-        use super::format::{format_currency, format_currency_unsigned};
+        use super::format::format_currency;
         let mut output = String::new();
         let closed = self.closed_positions();
 
