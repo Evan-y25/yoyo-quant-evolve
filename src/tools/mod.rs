@@ -4,6 +4,7 @@
 //! news, and analysis from CoinGecko (crypto) and Yahoo Finance (stocks).
 
 pub mod alerts;
+pub mod backtest;
 pub mod crypto;
 pub mod format;
 pub mod http;

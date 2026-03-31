@@ -57,7 +57,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.24.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.25.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -382,6 +382,10 @@ async fn main() {
             }
             s if s.starts_with("/alert") => {
                 handle_alert_command(s).await;
+                continue;
+            }
+            s if s.starts_with("/backtest") || s.starts_with("/bt ") => {
+                handle_backtest_command(s).await;
                 continue;
             }
             "/help" | "/?" => {
@@ -1544,6 +1548,69 @@ async fn handle_mtf_command(input: &str) {
     println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
 }
 
+/// Handle /backtest commands.
+///
+/// Usage:
+///   /backtest <symbol> [strategy] [range]
+///   /bt bitcoin sma 90d
+///   /bt AAPL rsi 1y
+///   /bt bitcoin sma_10_30 90d
+async fn handle_backtest_command(input: &str) {
+    let args = input
+        .trim_start_matches("/backtest")
+        .trim_start_matches("/bt")
+        .trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.is_empty() {
+        println!("\n{BOLD}{CYAN}  🧪 Backtest — Test strategies against historical data{RESET}");
+        println!("{DIM}  ─────────────────────────────────────────{RESET}");
+        println!("{DIM}  Usage: /backtest <symbol> [strategy] [range]{RESET}");
+        println!("{DIM}  Example: /backtest bitcoin sma 90d{RESET}");
+        println!("{DIM}  Example: /bt AAPL rsi 1y{RESET}");
+        println!("{DIM}  Example: /bt bitcoin sma_10_30 90d{RESET}");
+        println!();
+        println!("{DIM}  Available strategies:{RESET}");
+        for (name, desc) in tools::backtest::available_strategies() {
+            println!("    {BOLD}{name}{RESET}  — {desc}");
+        }
+        println!();
+        println!("{DIM}  Ranges: 7d, 30d, 90d, 1y (default: 90d){RESET}");
+        println!("{DIM}  Default strategy: sma (SMA Crossover 7/25){RESET}\n");
+        return;
+    }
+
+    let symbol = parts[0];
+    let strategy_str = parts.get(1).copied().unwrap_or("sma");
+    let range = parts.get(2).copied().unwrap_or("90d");
+
+    let strategy = match tools::backtest::parse_strategy(strategy_str) {
+        Some(s) => s,
+        None => {
+            println!("{RED}  Unknown strategy: '{strategy_str}'{RESET}");
+            println!("{DIM}  Available: sma, sma_10_30, rsi, rsi_14_25_75{RESET}\n");
+            return;
+        }
+    };
+
+    println!("{DIM}  Fetching {symbol} history ({range}) for backtesting...{RESET}");
+
+    match fetch_price_series(symbol, range).await {
+        Ok(prices) => {
+            if prices.len() < 30 {
+                println!("{RED}  Not enough data for backtesting (need 30+ data points, got {}){RESET}\n", prices.len());
+                return;
+            }
+            println!("{DIM}  Running {} on {} data points...{RESET}", strategy.name(), prices.len());
+            let result = tools::backtest::run_backtest(&prices, &strategy, symbol, range);
+            println!("\n{}", result.format());
+        }
+        Err(e) => {
+            println!("{RED}  Error fetching data: {e}{RESET}\n");
+        }
+    }
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -1581,6 +1648,7 @@ fn print_help() {
     println!("  {BOLD}/alert{RESET} <sym> above/below <price> [note]  Set a price alert");
     println!("  {BOLD}/alert rm{RESET} <id>        Remove an alert");
     println!("  {BOLD}/alert clear{RESET}          Clear triggered alerts");
+    println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
