@@ -2063,7 +2063,9 @@ async fn handle_size_command(input: &str) {
         match parts[1].parse() {
             Ok(p) if p > 0.0 => p,
             _ => {
-                println!("{RED}  Error: entry_price must be a positive number (or 'auto'){RESET}\n");
+                println!(
+                    "{RED}  Error: entry_price must be a positive number (or 'auto'){RESET}\n"
+                );
                 return;
             }
         }
@@ -2129,8 +2131,15 @@ async fn handle_size_command(input: &str) {
             // Try to fetch price data and show stop-loss suggestions for context
             match fetch_price_series(symbol, "30d").await {
                 Ok(prices) if prices.len() >= 15 => {
-                    let side = if stop_loss < entry_price { "buy" } else { "sell" };
-                    println!("{}", tools::risk::suggest_stop_loss_levels(entry_price, &prices, side));
+                    let side = if stop_loss < entry_price {
+                        "buy"
+                    } else {
+                        "sell"
+                    };
+                    println!(
+                        "{}",
+                        tools::risk::suggest_stop_loss_levels(entry_price, &prices, side)
+                    );
                 }
                 _ => {}
             }
@@ -2176,7 +2185,10 @@ async fn handle_suggest_command(input: &str) {
     let prices_30d = match res_30d {
         Ok(p) if p.len() >= 20 => p,
         Ok(p) => {
-            println!("{RED}  Not enough data for analysis (need 20+ points, got {}){RESET}\n", p.len());
+            println!(
+                "{RED}  Not enough data for analysis (need 20+ points, got {}){RESET}\n",
+                p.len()
+            );
             return;
         }
         Err(e) => {
@@ -2213,7 +2225,11 @@ async fn handle_suggest_command(input: &str) {
     let mut bearish_count = 0u32;
     let mut total_timeframes = 0u32;
 
-    for signal in [&signal_7d, &signal_30d, &signal_90d].iter().copied().flatten() {
+    for signal in [&signal_7d, &signal_30d, &signal_90d]
+        .iter()
+        .copied()
+        .flatten()
+    {
         total_timeframes += 1;
         if signal.bullish > signal.bearish {
             bullish_count += 1;
@@ -2257,17 +2273,29 @@ async fn handle_suggest_command(input: &str) {
         );
         ("SELL/AVOID", conf, reason)
     } else if bullish_count > bearish_count {
-        ("CAUTIOUS BUY", 5, format!(
-            "Mixed signals — {} bullish, {} bearish timeframes. Wait for clearer setup.",
-            bullish_count, bearish_count
-        ))
+        (
+            "CAUTIOUS BUY",
+            5,
+            format!(
+                "Mixed signals — {} bullish, {} bearish timeframes. Wait for clearer setup.",
+                bullish_count, bearish_count
+            ),
+        )
     } else if bearish_count > bullish_count {
-        ("CAUTIOUS SELL", 5, format!(
-            "Mixed signals — {} bearish, {} bullish timeframes. Risk of reversal.",
-            bearish_count, bullish_count
-        ))
+        (
+            "CAUTIOUS SELL",
+            5,
+            format!(
+                "Mixed signals — {} bearish, {} bullish timeframes. Risk of reversal.",
+                bearish_count, bullish_count
+            ),
+        )
     } else {
-        ("HOLD", 4, "Neutral across timeframes. No clear edge.".to_string())
+        (
+            "HOLD",
+            4,
+            "Neutral across timeframes. No clear edge.".to_string(),
+        )
     };
 
     // Calculate suggested levels
@@ -2292,14 +2320,26 @@ async fn handle_suggest_command(input: &str) {
 
     let risk_per_unit = (current_price - suggested_sl).abs();
     let reward_per_unit = (suggested_tp - current_price).abs();
-    let rr_ratio = if risk_per_unit > 0.0 { reward_per_unit / risk_per_unit } else { 0.0 };
+    let rr_ratio = if risk_per_unit > 0.0 {
+        reward_per_unit / risk_per_unit
+    } else {
+        0.0
+    };
 
     // Portfolio-based sizing
     let portfolio = tools::portfolio::Portfolio::load();
     let portfolio_value = portfolio.cash
-        + portfolio.open_positions().iter().map(|t| t.notional_value()).sum::<f64>();
+        + portfolio
+            .open_positions()
+            .iter()
+            .map(|t| t.notional_value())
+            .sum::<f64>();
     let risk_budget = portfolio_value * 0.02; // 2% risk
-    let suggested_qty = if risk_per_unit > 0.0 { risk_budget / risk_per_unit } else { 0.0 };
+    let suggested_qty = if risk_per_unit > 0.0 {
+        risk_budget / risk_per_unit
+    } else {
+        0.0
+    };
     let notional = suggested_qty * current_price;
 
     // Output
@@ -2316,7 +2356,11 @@ async fn handle_suggest_command(input: &str) {
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
 
     // Show timeframe breakdown
-    for (label, signal) in [("7d", &signal_7d), ("30d", &signal_30d), ("90d", &signal_90d)] {
+    for (label, signal) in [
+        ("7d", &signal_7d),
+        ("30d", &signal_30d),
+        ("90d", &signal_90d),
+    ] {
         if let Some(s) = signal {
             println!(
                 "  {label:>4}: {} {} ({} bull, {} bear, {} neutral)",
@@ -2353,14 +2397,15 @@ async fn handle_suggest_command(input: &str) {
 
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
     println!("  📐 Position Sizing (2% risk budget):");
-    println!(
-        "    Quantity:   {:.6} units",
-        suggested_qty,
-    );
+    println!("    Quantity:   {:.6} units", suggested_qty,);
     println!(
         "    Notional:   {} ({:.1}% of portfolio)",
         tools::format::format_currency_unsigned(notional),
-        if portfolio_value > 0.0 { (notional / portfolio_value) * 100.0 } else { 0.0 },
+        if portfolio_value > 0.0 {
+            (notional / portfolio_value) * 100.0
+        } else {
+            0.0
+        },
     );
     println!(
         "    Max Loss:   {}",
@@ -2399,7 +2444,9 @@ fn print_help() {
     println!("  {BOLD}/mtf{RESET} <symbol>        Multi-timeframe analysis (7d + 30d + 90d)");
     println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
     println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked");
-    println!("  {BOLD}/suggest{RESET} <symbol>     Auto-generate trade idea with entry/SL/TP/sizing");
+    println!(
+        "  {BOLD}/suggest{RESET} <symbol>     Auto-generate trade idea with entry/SL/TP/sizing"
+    );
     println!();
     println!("  {BOLD}{CYAN}Trading{RESET}");
     println!("  {BOLD}/portfolio{RESET}           Paper trading portfolio summary");

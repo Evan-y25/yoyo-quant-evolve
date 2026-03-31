@@ -433,7 +433,11 @@ pub fn suggest_stop_loss_levels(
         } else {
             entry_price * (1.0 + pct / 100.0)
         };
-        suggestions.push((format!("{:.0}% stop", pct), sl, format!("{:.1}% from entry", pct)));
+        suggestions.push((
+            format!("{:.0}% stop", pct),
+            sl,
+            format!("{:.1}% from entry", pct),
+        ));
     }
 
     // 2. Volatility-based (using close-only pseudo-ATR)
@@ -498,7 +502,9 @@ pub fn suggest_stop_loss_levels(
     suggestions.sort_by(|a, b| {
         let dist_a = (a.1 - entry_price).abs();
         let dist_b = (b.1 - entry_price).abs();
-        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        dist_a
+            .partial_cmp(&dist_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     for (method, price, description) in suggestions.iter().take(6) {
@@ -519,8 +525,7 @@ mod tests {
     fn test_position_sizing_basic() {
         // Portfolio $100k, risk 2%, entry $100, SL $95
         // Risk amount = $2000, Risk per unit = $5, Quantity = 400
-        let result =
-            calculate_position_size(100_000.0, 100.0, 95.0, 2.0, None, "AAPL").unwrap();
+        let result = calculate_position_size(100_000.0, 100.0, 95.0, 2.0, None, "AAPL").unwrap();
         assert!((result.quantity - 400.0).abs() < 0.01);
         assert!((result.risk_amount - 2_000.0).abs() < 0.01);
         assert!((result.notional_value - 40_000.0).abs() < 0.01);
@@ -568,8 +573,7 @@ mod tests {
     #[test]
     fn test_position_sizing_short() {
         // Short: entry $100, SL $105 (above), risk per unit = $5
-        let result =
-            calculate_position_size(100_000.0, 100.0, 105.0, 2.0, None, "AAPL").unwrap();
+        let result = calculate_position_size(100_000.0, 100.0, 105.0, 2.0, None, "AAPL").unwrap();
         assert!((result.quantity - 400.0).abs() < 0.01);
         assert!((result.risk_per_unit - 5.0).abs() < 0.01);
     }
@@ -662,7 +666,9 @@ mod tests {
     #[test]
     fn test_suggest_stop_loss_buy() {
         // Uptrending prices
-        let prices: Vec<f64> = (0..60).map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let prices: Vec<f64> = (0..60)
+            .map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0)
+            .collect();
         let current = *prices.last().unwrap();
         let result = suggest_stop_loss_levels(current, &prices, "buy");
         assert!(result.contains("Suggested Stop-Loss Levels"));
@@ -672,7 +678,9 @@ mod tests {
 
     #[test]
     fn test_suggest_stop_loss_sell() {
-        let prices: Vec<f64> = (0..60).map(|i| 200.0 - i as f64 * 0.3 + (i as f64 * 0.2).sin() * 3.0).collect();
+        let prices: Vec<f64> = (0..60)
+            .map(|i| 200.0 - i as f64 * 0.3 + (i as f64 * 0.2).sin() * 3.0)
+            .collect();
         let current = *prices.last().unwrap();
         let result = suggest_stop_loss_levels(current, &prices, "sell");
         assert!(result.contains("Suggested Stop-Loss Levels"));
