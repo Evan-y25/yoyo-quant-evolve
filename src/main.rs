@@ -2121,6 +2121,15 @@ async fn handle_size_command(input: &str) {
         Ok(sizing) => {
             println!();
             println!("{}", sizing.format());
+
+            // Try to fetch price data and show stop-loss suggestions for context
+            match fetch_price_series(symbol, "30d").await {
+                Ok(prices) if prices.len() >= 15 => {
+                    let side = if stop_loss < entry_price { "buy" } else { "sell" };
+                    println!("{}", tools::risk::suggest_stop_loss_levels(entry_price, &prices, side));
+                }
+                _ => {}
+            }
         }
         Err(e) => {
             println!("{RED}  Error: {e}{RESET}\n");

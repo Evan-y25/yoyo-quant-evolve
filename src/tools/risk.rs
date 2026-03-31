@@ -406,6 +406,111 @@ pub fn calculate_position_size(
     })
 }
 
+/// Suggest stop-loss levels for a given entry price using historical price data.
+///
+/// Uses multiple approaches:
+/// 1. Percentage-based (fixed % below entry)
+/// 2. Volatility-based (using close-only pseudo-ATR)
+/// 3. Support/resistance level based
+///
+/// Returns a formatted string with suggestions, sorted by distance from entry.
+pub fn suggest_stop_loss_levels(
+    entry_price: f64,
+    prices: &[f64],
+    side: &str, // "buy" or "sell"
+) -> String {
+    use super::indicators;
+
+    let mut output = String::new();
+    output.push_str("  💡 Suggested Stop-Loss Levels:\n");
+
+    let mut suggestions: Vec<(String, f64, String)> = Vec::new();
+
+    // 1. Percentage-based stops
+    for pct in [2.0, 5.0, 10.0] {
+        let sl = if side == "buy" {
+            entry_price * (1.0 - pct / 100.0)
+        } else {
+            entry_price * (1.0 + pct / 100.0)
+        };
+        suggestions.push((format!("{:.0}% stop", pct), sl, format!("{:.1}% from entry", pct)));
+    }
+
+    // 2. Volatility-based (using close-only pseudo-ATR)
+    if prices.len() >= 15 {
+        let changes: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let avg_change = changes.iter().sum::<f64>() / changes.len() as f64;
+
+        for multiplier in [1.5, 2.0, 3.0] {
+            let distance = avg_change * multiplier;
+            let sl = if side == "buy" {
+                entry_price - distance
+            } else {
+                entry_price + distance
+            };
+            let pct_from_entry = (distance / entry_price) * 100.0;
+            suggestions.push((
+                format!("{:.1}x ATR", multiplier),
+                sl,
+                format!("{:.2}% from entry", pct_from_entry),
+            ));
+        }
+    }
+
+    // 3. Support/resistance-based
+    if prices.len() >= 20 {
+        if let Some((supports, resistances)) =
+            indicators::support_resistance(prices, prices.len().min(60))
+        {
+            if side == "buy" {
+                let mut below: Vec<f64> = supports
+                    .into_iter()
+                    .filter(|&s| s < entry_price * 0.99)
+                    .collect();
+                below.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+                for (i, support) in below.iter().take(2).enumerate() {
+                    let pct = ((entry_price - support) / entry_price) * 100.0;
+                    suggestions.push((
+                        format!("Support #{}", i + 1),
+                        *support,
+                        format!("{:.2}% below entry", pct),
+                    ));
+                }
+            } else {
+                let mut above: Vec<f64> = resistances
+                    .into_iter()
+                    .filter(|&r| r > entry_price * 1.01)
+                    .collect();
+                above.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                for (i, resistance) in above.iter().take(2).enumerate() {
+                    let pct = ((resistance - entry_price) / entry_price) * 100.0;
+                    suggestions.push((
+                        format!("Resistance #{}", i + 1),
+                        *resistance,
+                        format!("{:.2}% above entry", pct),
+                    ));
+                }
+            }
+        }
+    }
+
+    // Sort by distance from entry (closest first)
+    suggestions.sort_by(|a, b| {
+        let dist_a = (a.1 - entry_price).abs();
+        let dist_b = (b.1 - entry_price).abs();
+        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    for (method, price, description) in suggestions.iter().take(6) {
+        output.push_str(&format!(
+            "     {:<14} ${:.2}  ({})\n",
+            method, price, description
+        ));
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,5 +657,33 @@ mod tests {
             tight.score,
             wide.score
         );
+    }
+
+    #[test]
+    fn test_suggest_stop_loss_buy() {
+        // Uptrending prices
+        let prices: Vec<f64> = (0..60).map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 2.0).collect();
+        let current = *prices.last().unwrap();
+        let result = suggest_stop_loss_levels(current, &prices, "buy");
+        assert!(result.contains("Suggested Stop-Loss Levels"));
+        assert!(result.contains("2% stop"));
+        assert!(result.contains("ATR"));
+    }
+
+    #[test]
+    fn test_suggest_stop_loss_sell() {
+        let prices: Vec<f64> = (0..60).map(|i| 200.0 - i as f64 * 0.3 + (i as f64 * 0.2).sin() * 3.0).collect();
+        let current = *prices.last().unwrap();
+        let result = suggest_stop_loss_levels(current, &prices, "sell");
+        assert!(result.contains("Suggested Stop-Loss Levels"));
+        assert!(result.contains("2% stop"));
+    }
+
+    #[test]
+    fn test_suggest_stop_loss_short_data() {
+        let prices = vec![100.0, 101.0, 99.0, 102.0, 100.5];
+        let result = suggest_stop_loss_levels(100.5, &prices, "buy");
+        // Should still have percentage-based stops even with minimal data
+        assert!(result.contains("2% stop"));
     }
 }
