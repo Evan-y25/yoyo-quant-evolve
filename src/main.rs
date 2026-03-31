@@ -1080,6 +1080,11 @@ async fn handle_portfolio_command(input: &str) {
             let portfolio = tools::portfolio::Portfolio::load();
             println!("\n{}", portfolio.performance_report());
         }
+        Some("analyze") | Some("patterns") | Some("mistakes") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            let report = tools::trade_analysis::analyze_trades(&portfolio);
+            println!("\n{}", report.format());
+        }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
             if let Err(e) = portfolio.save() {
@@ -2466,6 +2471,9 @@ fn print_help() {
         "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
     );
     println!("  {BOLD}/pf stats{RESET}              Performance dashboard — stats by symbol, streaks, edge");
+    println!(
+        "  {BOLD}/pf analyze{RESET}           Detect recurring mistake patterns in your trading"
+    );
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!();
     println!("  {BOLD}{CYAN}Risk Management{RESET}");

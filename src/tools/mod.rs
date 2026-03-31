@@ -15,6 +15,7 @@ pub mod portfolio;
 pub mod price_history;
 pub mod risk;
 pub mod search_symbol;
+pub mod trade_analysis;
 pub mod watchlist;
 
 pub use crypto::fetch_live_price;
