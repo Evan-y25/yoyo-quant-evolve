@@ -388,6 +388,10 @@ async fn main() {
                 handle_backtest_command(s).await;
                 continue;
             }
+            s if s.starts_with("/risk ") => {
+                handle_risk_command(s).await;
+                continue;
+            }
             "/help" | "/?" => {
                 print_help();
                 continue;
@@ -1564,6 +1568,99 @@ async fn handle_mtf_command(input: &str) {
     println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
 }
 
+/// Handle /risk command — assess risk for a proposed trade.
+///
+/// Usage:
+///   /risk <symbol> <quantity> [price] [stop_loss]
+///   /risk bitcoin 0.5 87000 82000
+///   /risk AAPL 100
+async fn handle_risk_command(input: &str) {
+    let args = input.trim_start_matches("/risk").trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.len() < 2 {
+        println!("{DIM}  Usage: /risk <symbol> <quantity> [price] [stop_loss]{RESET}");
+        println!("{DIM}  Example: /risk bitcoin 0.5 87000 82000{RESET}");
+        println!("{DIM}  Example: /risk AAPL 100  (auto-fetches price){RESET}\n");
+        return;
+    }
+
+    let symbol = parts[0];
+    let quantity: f64 = match parts[1].parse() {
+        Ok(q) if q > 0.0 => q,
+        _ => {
+            println!("{RED}  Error: quantity must be a positive number{RESET}\n");
+            return;
+        }
+    };
+
+    // Parse or auto-fetch price
+    let price = if parts.len() >= 3 {
+        match parts[2].parse::<f64>() {
+            Ok(p) if p > 0.0 => p,
+            _ => {
+                println!("{RED}  Error: price must be a positive number{RESET}\n");
+                return;
+            }
+        }
+    } else {
+        match fetch_live_price_for_trade(symbol).await {
+            Some(p) => p,
+            None => return,
+        }
+    };
+
+    let stop_loss: Option<f64> = if parts.len() >= 4 {
+        match parts[3].parse::<f64>() {
+            Ok(sl) if sl > 0.0 => Some(sl),
+            _ => {
+                println!("{RED}  Error: stop_loss must be a positive number{RESET}\n");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let notional = quantity * price;
+    let portfolio = tools::portfolio::Portfolio::load();
+    let portfolio_value = portfolio.cash
+        + portfolio
+            .open_positions()
+            .iter()
+            .map(|t| t.notional_value())
+            .sum::<f64>();
+
+    // Try to fetch price history for indicator-based risk assessment
+    println!("{DIM}  Fetching price data for risk analysis...{RESET}");
+    let prices_opt = match fetch_price_series(symbol, "30d").await {
+        Ok(p) if p.len() >= 30 => Some(p),
+        _ => None,
+    };
+
+    let risk = tools::risk::assess_trade_risk(
+        portfolio_value,
+        notional,
+        price,
+        stop_loss,
+        prices_opt.as_deref(),
+    );
+
+    println!();
+    println!(
+        "{BOLD}{CYAN}  ⚖️  Risk Assessment: {} {} x{} @ ${:.2}{RESET}",
+        symbol,
+        if quantity > 0.0 { "BUY" } else { "SELL" },
+        quantity,
+        price,
+    );
+    println!("{DIM}  Trade Value: ${:.2} | Portfolio: ${:.2}{RESET}", notional, portfolio_value);
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    print!("{}", risk.format());
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
+    println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
+}
+
 /// Handle /backtest commands.
 ///
 /// Usage:
@@ -1665,6 +1762,7 @@ fn print_help() {
     println!("  {BOLD}/alert rm{RESET} <id>        Remove an alert");
     println!("  {BOLD}/alert clear{RESET}          Clear triggered alerts");
     println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
+    println!("  {BOLD}/risk{RESET} <sym> <qty> [price] [sl]  Risk assessment for a proposed trade");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
     println!("  {BOLD}/help{RESET}                Show this help");
