@@ -13,6 +13,7 @@ pub mod market_overview;
 pub mod news;
 pub mod portfolio;
 pub mod price_history;
+pub mod risk;
 pub mod search_symbol;
 pub mod watchlist;
 

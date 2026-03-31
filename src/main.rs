@@ -718,7 +718,23 @@ async fn handle_portfolio_command(input: &str) {
                     println!(
                         "\n{GREEN}  ✓ Trade #{id} opened: {side} {symbol} x{quantity} @ ${price:.2} (${notional:.2}){RESET}"
                     );
-                    println!("{DIM}  Cash remaining: ${:.2}{RESET}\n", portfolio.cash);
+                    println!("{DIM}  Cash remaining: ${:.2}{RESET}", portfolio.cash);
+
+                    // Show risk assessment
+                    let portfolio_value = portfolio.cash + notional; // approximate
+                    let risk = tools::risk::assess_trade_risk(
+                        portfolio_value,
+                        notional,
+                        price,
+                        None, // No SL yet — will prompt
+                        None, // Could fetch prices for indicator analysis
+                    );
+                    println!("{}", risk.format());
+                    if risk.score >= 6 {
+                        println!("{YELLOW}  💡 Consider setting a stop-loss: /pf sl {id} <price>{RESET}\n");
+                    } else {
+                        println!();
+                    }
                 }
                 Err(e) => println!("{RED}  Error: {e}{RESET}\n"),
             }
