@@ -400,6 +400,10 @@ async fn main() {
                 handle_suggest_command(s).await;
                 continue;
             }
+            s if s.starts_with("/scan") || s.starts_with("/screener") => {
+                handle_scan_command(s).await;
+                continue;
+            }
             "/dashboard" | "/dash" | "/status" => {
                 handle_dashboard_command().await;
                 continue;
@@ -2430,6 +2434,225 @@ async fn handle_suggest_command(input: &str) {
     println!("{DIM}  ⚠️  Not financial advice. Do your own research.{RESET}\n");
 }
 
+/// Handle /scan or /screener command — scan multiple assets for signals.
+///
+/// Usage:
+///   /scan                     — scan watchlist
+///   /scan bitcoin ethereum solana AAPL MSFT
+///   /screener bitcoin ethereum
+async fn handle_scan_command(input: &str) {
+    let args = input
+        .trim_start_matches("/screener")
+        .trim_start_matches("/scan")
+        .trim();
+
+    let symbols: Vec<String> = if args.is_empty() {
+        // Default to watchlist
+        let wl = tools::watchlist::Watchlist::load();
+        if wl.is_empty() {
+            println!("\n{DIM}  📋 Your watchlist is empty. Add symbols or specify them directly:{RESET}");
+            println!("{DIM}  /scan bitcoin ethereum solana AAPL MSFT{RESET}");
+            println!("{DIM}  Or: /wl + bitcoin  to add to watchlist first{RESET}\n");
+            return;
+        }
+        wl.symbols.iter().cloned().collect()
+    } else {
+        args.split_whitespace().map(|s| s.to_string()).collect()
+    };
+
+    if symbols.is_empty() {
+        println!("{DIM}  Usage: /scan <symbol1> <symbol2> ... or /scan (uses watchlist){RESET}\n");
+        return;
+    }
+
+    println!("{DIM}  Scanning {} assets for signals (30d data)...{RESET}", symbols.len());
+
+    // Fetch price data for all symbols concurrently
+    let futures: Vec<_> = symbols
+        .iter()
+        .map(|sym| {
+            let s = sym.clone();
+            async move {
+                let prices = fetch_price_series(&s, "30d").await;
+                let live = tools::fetch_live_price(&s).await;
+                (s, prices, live)
+            }
+        })
+        .collect();
+    let results = futures::future::join_all(futures).await;
+
+    // Build scan results
+    struct ScanResult {
+        symbol: String,
+        name: String,
+        price: f64,
+        change_pct: f64,
+        signal: Option<tools::SignalCounts>,
+        rsi: Option<f64>,
+    }
+
+    let mut scan_results: Vec<ScanResult> = Vec::new();
+
+    for (sym, prices_result, live_result) in results {
+        let (price, name) = match live_result {
+            Ok((p, n)) => (p, n),
+            Err(_) => continue,
+        };
+
+        let (signal, change_pct, rsi) = match prices_result {
+            Ok(prices) if prices.len() >= 15 => {
+                let current = *prices.last().unwrap_or(&price);
+                let change = if prices[0] > 0.0 {
+                    ((current - prices[0]) / prices[0]) * 100.0
+                } else {
+                    0.0
+                };
+                let sig = tools::compute_signal_counts(&prices, current, None, None, None);
+                let rsi_val = tools::indicators::rsi(&prices, 14);
+                (sig, change, rsi_val)
+            }
+            _ => (None, 0.0, None),
+        };
+
+        scan_results.push(ScanResult {
+            symbol: sym,
+            name,
+            price,
+            change_pct,
+            signal,
+            rsi,
+        });
+    }
+
+    if scan_results.is_empty() {
+        println!("{RED}  No results — couldn't fetch data for any of the symbols.{RESET}\n");
+        return;
+    }
+
+    // Sort by signal strength: strong bullish first, then slight bullish, neutral, slight bearish, strong bearish
+    scan_results.sort_by(|a, b| {
+        let score_a = match &a.signal {
+            Some(s) => s.bullish as i32 - s.bearish as i32,
+            None => -100,
+        };
+        let score_b = match &b.signal {
+            Some(s) => s.bullish as i32 - s.bearish as i32,
+            None => -100,
+        };
+        score_b.cmp(&score_a)
+    });
+
+    // Print results
+    println!();
+    println!("{BOLD}{CYAN}  🔍 Signal Scanner ({} assets){RESET}", scan_results.len());
+    println!("{DIM}  ═════════════════════════════════════════════════════════════{RESET}");
+    println!(
+        "{BOLD}  {:<16} {:>10} {:>8} {:>5}  {:>6}  {}{RESET}",
+        "Asset", "Price", "30d Chg", "RSI", "Signal", "Indicators"
+    );
+    println!("{DIM}  ─────────────────────────────────────────────────────────────{RESET}");
+
+    for result in &scan_results {
+        let price_str = tools::format::format_price(result.price);
+        let change_str = format!(
+            "{}{}%",
+            if result.change_pct >= 0.0 { "+" } else { "" },
+            format!("{:.1}", result.change_pct),
+        );
+        let rsi_str = match result.rsi {
+            Some(r) => format!("{:.0}", r),
+            None => "—".to_string(),
+        };
+        let (verdict_str, indicator_str) = match &result.signal {
+            Some(s) => {
+                let dots: String = s
+                    .signals
+                    .iter()
+                    .map(|(_, dot)| dot.as_str())
+                    .collect::<Vec<&str>>()
+                    .join("");
+                (
+                    format!("{} {}", s.emoji, &s.verdict[..s.verdict.len().min(12)]),
+                    dots,
+                )
+            }
+            None => ("⚪ N/A".to_string(), String::new()),
+        };
+
+        // Truncate name for display, include symbol if different
+        let display_name = if result.symbol == result.name {
+            if result.name.len() > 15 {
+                format!("{}…", &result.name[..14])
+            } else {
+                result.name.clone()
+            }
+        } else if result.name.len() > 15 {
+            // Show symbol instead of long name
+            result.symbol.clone()
+        } else {
+            result.name.clone()
+        };
+
+        println!(
+            "  {:<16} {:>10} {:>8} {:>5}  {}  {}",
+            display_name, price_str, change_str, rsi_str, verdict_str, indicator_str,
+        );
+    }
+
+    // Summary
+    let bullish_count = scan_results
+        .iter()
+        .filter(|r| r.signal.as_ref().map_or(false, |s| s.bullish > s.bearish))
+        .count();
+    let bearish_count = scan_results
+        .iter()
+        .filter(|r| r.signal.as_ref().map_or(false, |s| s.bearish > s.bullish))
+        .count();
+    let neutral_count = scan_results.len() - bullish_count - bearish_count;
+
+    println!("{DIM}  ─────────────────────────────────────────────────────────────{RESET}");
+    println!(
+        "  Summary: {} 🟢 bullish | {} 🔴 bearish | {} ⚪ neutral/mixed",
+        bullish_count, bearish_count, neutral_count,
+    );
+
+    // Highlight strongest signals
+    if let Some(most_bullish) = scan_results.iter().find(|r| {
+        r.signal
+            .as_ref()
+            .map_or(false, |s| s.bullish > s.bearish + 1)
+    }) {
+        println!(
+            "  🟢 Strongest bullish: {} ({})",
+            most_bullish.name,
+            most_bullish
+                .signal
+                .as_ref()
+                .map(|s| s.verdict.clone())
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(most_bearish) = scan_results.iter().rev().find(|r| {
+        r.signal
+            .as_ref()
+            .map_or(false, |s| s.bearish > s.bullish + 1)
+    }) {
+        println!(
+            "  🔴 Strongest bearish: {} ({})",
+            most_bearish.name,
+            most_bearish
+                .signal
+                .as_ref()
+                .map(|s| s.verdict.clone())
+                .unwrap_or_default(),
+        );
+    }
+
+    println!("{DIM}  ═════════════════════════════════════════════════════════════{RESET}");
+    println!("{DIM}  Use /ta <symbol> for detailed analysis on any asset above.{RESET}");
+    println!("{DIM}  ⚠️  Not financial advice. Always do your own research.{RESET}\n");
+}
+
 fn print_help() {
     println!("\n{BOLD}{CYAN}  yoyo commands{RESET}");
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -2451,6 +2674,9 @@ fn print_help() {
     println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked");
     println!(
         "  {BOLD}/suggest{RESET} <symbol>     Auto-generate trade idea with entry/SL/TP/sizing"
+    );
+    println!(
+        "  {BOLD}/scan{RESET} [sym1 sym2 ...]  Scan multiple assets for signals (default: watchlist)"
     );
     println!();
     println!("  {BOLD}{CYAN}Trading{RESET}");
