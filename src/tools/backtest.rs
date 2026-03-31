@@ -173,10 +173,7 @@ pub enum Strategy {
     },
     /// Bollinger Band squeeze: buy when bands narrow then expand upward,
     /// sell when they narrow then expand downward.
-    BollingerSqueeze {
-        period: usize,
-        std_dev: f64,
-    },
+    BollingerSqueeze { period: usize, std_dev: f64 },
 }
 
 impl Strategy {
@@ -502,11 +499,7 @@ fn backtest_rsi_mean_reversion(
 /// wait for price to break out above the upper band (buy) or below the lower band (sell/exit).
 ///
 /// The idea: low volatility = compression → breakout → big move.
-fn backtest_bollinger_squeeze(
-    prices: &[f64],
-    period: usize,
-    std_dev: f64,
-) -> Vec<BacktestTrade> {
+fn backtest_bollinger_squeeze(prices: &[f64], period: usize, std_dev: f64) -> Vec<BacktestTrade> {
     let mut trades = Vec::new();
     if prices.len() < period + 10 {
         return trades;
@@ -522,11 +515,16 @@ fn backtest_bollinger_squeeze(
         if i + 1 >= period {
             let window = &prices[i + 1 - period..=i];
             let middle = window.iter().sum::<f64>() / period as f64;
-            let variance = window.iter().map(|&p| (p - middle).powi(2)).sum::<f64>() / period as f64;
+            let variance =
+                window.iter().map(|&p| (p - middle).powi(2)).sum::<f64>() / period as f64;
             let stddev = variance.sqrt();
             let upper = middle + std_dev * stddev;
             let lower = middle - std_dev * stddev;
-            let bw = if middle > 0.0 { (upper - lower) / middle * 100.0 } else { 0.0 };
+            let bw = if middle > 0.0 {
+                (upper - lower) / middle * 100.0
+            } else {
+                0.0
+            };
             bandwidths.push(Some(bw));
             uppers.push(Some(upper));
             lowers.push(Some(lower));
@@ -570,7 +568,8 @@ fn backtest_bollinger_squeeze(
         let avg_bw: f64 = bandwidths[i - lookback..i]
             .iter()
             .filter_map(|b| *b)
-            .sum::<f64>() / lookback as f64;
+            .sum::<f64>()
+            / lookback as f64;
 
         let in_squeeze = current_bw < avg_bw * 0.75;
 
@@ -989,10 +988,13 @@ mod tests {
         for i in 0..30 {
             prices.push(145.0 + (i as f64 * 0.1).sin() * 0.5);
         }
-        
+
         let result = run_backtest(
             &prices,
-            &Strategy::BollingerSqueeze { period: 20, std_dev: 2.0 },
+            &Strategy::BollingerSqueeze {
+                period: 20,
+                std_dev: 2.0,
+            },
             "TEST",
             "90d",
         );
@@ -1005,7 +1007,10 @@ mod tests {
         let prices = vec![100.0; 20];
         let result = run_backtest(
             &prices,
-            &Strategy::BollingerSqueeze { period: 20, std_dev: 2.0 },
+            &Strategy::BollingerSqueeze {
+                period: 20,
+                std_dev: 2.0,
+            },
             "TEST",
             "7d",
         );

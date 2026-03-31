@@ -30,7 +30,12 @@ pub fn format_currency(value: f64) -> String {
     let integer_part = abs_val as u64;
     let decimal_part = format!("{:.2}", abs_val.fract());
     let decimal_str = &decimal_part[1..]; // ".XX"
-    format!("{}${}{}", sign, format_with_commas(integer_part), decimal_str)
+    format!(
+        "{}${}{}",
+        sign,
+        format_with_commas(integer_part),
+        decimal_str
+    )
 }
 
 /// Format a currency value without sign prefix.

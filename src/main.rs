@@ -972,6 +972,10 @@ async fn handle_portfolio_command(input: &str) {
             };
             println!("\n{}", portfolio.history_report(limit));
         }
+        Some("stats") | Some("performance") | Some("perf") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            println!("\n{}", portfolio.performance_report());
+        }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
             if let Err(e) = portfolio.save() {
@@ -1763,6 +1767,7 @@ fn print_help() {
     println!(
         "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
     );
+    println!("  {BOLD}/pf stats{RESET}              Performance dashboard — stats by symbol, streaks, edge");
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!("  {BOLD}/alert{RESET}               Show price alerts + check for triggers");
     println!("  {BOLD}/alert{RESET} <sym> above/below <price> [note]  Set a price alert");

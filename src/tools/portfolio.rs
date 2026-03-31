@@ -12,6 +12,16 @@ use std::path::Path;
 const PORTFOLIO_FILE: &str = "portfolio.json";
 const DEFAULT_STARTING_BALANCE: f64 = 100_000.0;
 
+/// Stats aggregated per symbol for the performance dashboard.
+struct SymbolStats {
+    total_trades: u32,
+    wins: u32,
+    losses: u32,
+    total_pnl: f64,
+    best_pnl: f64,
+    worst_pnl: f64,
+}
+
 /// A single paper trade.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperTrade {
@@ -348,7 +358,10 @@ impl Portfolio {
             "  Starting Balance: {}\n",
             format_currency_unsigned(self.starting_balance)
         ));
-        output.push_str(&format!("  Cash Available:   {}\n", format_currency_unsigned(self.cash)));
+        output.push_str(&format!(
+            "  Cash Available:   {}\n",
+            format_currency_unsigned(self.cash)
+        ));
 
         let open = self.open_positions();
         let closed = self.closed_positions();
@@ -386,7 +399,10 @@ impl Portfolio {
                 if total_return >= 0.0 { "+" } else { "" },
                 total_return,
             ));
-            output.push_str(&format!("  Portfolio Value:  {}\n", format_currency_unsigned(total_value)));
+            output.push_str(&format!(
+                "  Portfolio Value:  {}\n",
+                format_currency_unsigned(total_value)
+            ));
         }
 
         if let Some(wr) = self.win_rate() {
@@ -482,7 +498,10 @@ impl Portfolio {
             "  Starting Balance: {}\n",
             format_currency_unsigned(self.starting_balance)
         ));
-        output.push_str(&format!("  Cash Available:   {}\n", format_currency_unsigned(self.cash)));
+        output.push_str(&format!(
+            "  Cash Available:   {}\n",
+            format_currency_unsigned(self.cash)
+        ));
 
         let open = self.open_positions();
         let closed = self.closed_positions();
@@ -562,7 +581,259 @@ impl Portfolio {
         output
     }
 
-    /// Generate a full trade history report showing all closed trades with stats.
+    /// Generate a performance dashboard with stats by symbol, time analysis, and streaks.
+    /// This helps traders understand which assets they trade best and identify patterns.
+    pub fn performance_report(&self) -> String {
+        use super::format::{format_currency, format_currency_unsigned};
+        let mut output = String::new();
+        let closed = self.closed_positions();
+
+        output.push_str("📊 Performance Dashboard\n");
+        output.push_str("═════════════════════════════════════════\n");
+
+        if closed.is_empty() {
+            output.push_str("  No closed trades yet. Start trading with /pf buy <symbol> <qty>!\n");
+            output.push_str("═════════════════════════════════════════\n");
+            return output;
+        }
+
+        // Overall stats
+        let total_pnl = self.total_realized_pnl();
+        let win_rate = self.win_rate().unwrap_or(0.0);
+        let wins = closed
+            .iter()
+            .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+            .count();
+        let losses = closed
+            .iter()
+            .filter(|t| t.realized_pnl.unwrap_or(0.0) < 0.0)
+            .count();
+
+        output.push_str(&format!("  Total Closed:   {}\n", closed.len()));
+        output.push_str(&format!(
+            "  Total P&L:      {}\n",
+            format_currency(total_pnl)
+        ));
+        output.push_str(&format!(
+            "  Win Rate:       {:.1}% ({} W / {} L)\n",
+            win_rate, wins, losses
+        ));
+
+        // Calculate max consecutive wins/losses (streaks)
+        let mut max_win_streak = 0u32;
+        let mut max_loss_streak = 0u32;
+        let mut current_win_streak = 0u32;
+        let mut current_loss_streak = 0u32;
+
+        for trade in &closed {
+            let pnl = trade.realized_pnl.unwrap_or(0.0);
+            if pnl > 0.0 {
+                current_win_streak += 1;
+                current_loss_streak = 0;
+                max_win_streak = max_win_streak.max(current_win_streak);
+            } else {
+                current_loss_streak += 1;
+                current_win_streak = 0;
+                max_loss_streak = max_loss_streak.max(current_loss_streak);
+            }
+        }
+
+        output.push_str(&format!(
+            "  Best Streak:    {} consecutive wins 🔥\n",
+            max_win_streak
+        ));
+        output.push_str(&format!(
+            "  Worst Streak:   {} consecutive losses 💀\n",
+            max_loss_streak
+        ));
+
+        // Stats by symbol
+        let mut symbol_stats: std::collections::HashMap<String, SymbolStats> =
+            std::collections::HashMap::new();
+        for trade in &closed {
+            let pnl = trade.realized_pnl.unwrap_or(0.0);
+            let stats = symbol_stats
+                .entry(trade.symbol.clone())
+                .or_insert_with(|| SymbolStats {
+                    total_trades: 0,
+                    wins: 0,
+                    losses: 0,
+                    total_pnl: 0.0,
+                    best_pnl: f64::NEG_INFINITY,
+                    worst_pnl: f64::INFINITY,
+                });
+            stats.total_trades += 1;
+            stats.total_pnl += pnl;
+            if pnl > 0.0 {
+                stats.wins += 1;
+            } else {
+                stats.losses += 1;
+            }
+            if pnl > stats.best_pnl {
+                stats.best_pnl = pnl;
+            }
+            if pnl < stats.worst_pnl {
+                stats.worst_pnl = pnl;
+            }
+        }
+
+        if !symbol_stats.is_empty() {
+            output.push_str("─────────────────────────────────────────\n");
+            output.push_str("  📈 Performance by Symbol:\n");
+
+            // Sort by total PnL descending
+            let mut sorted: Vec<_> = symbol_stats.iter().collect();
+            sorted.sort_by(|a, b| {
+                b.1.total_pnl
+                    .partial_cmp(&a.1.total_pnl)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            for (symbol, stats) in &sorted {
+                let wr = if stats.total_trades > 0 {
+                    (stats.wins as f64 / stats.total_trades as f64) * 100.0
+                } else {
+                    0.0
+                };
+                let pnl_emoji = if stats.total_pnl >= 0.0 {
+                    "🟢"
+                } else {
+                    "🔴"
+                };
+                output.push_str(&format!(
+                    "    {} {:<12} {} | {} trades | {:.0}% WR | Best: {} | Worst: {}\n",
+                    pnl_emoji,
+                    symbol,
+                    format_currency(stats.total_pnl),
+                    stats.total_trades,
+                    wr,
+                    format_currency(stats.best_pnl),
+                    format_currency(stats.worst_pnl),
+                ));
+            }
+        }
+
+        // Confidence analysis — are higher confidence trades more profitable?
+        let high_conf: Vec<&&PaperTrade> = closed.iter().filter(|t| t.confidence >= 7).collect();
+        let low_conf: Vec<&&PaperTrade> = closed.iter().filter(|t| t.confidence <= 4).collect();
+
+        if !high_conf.is_empty() || !low_conf.is_empty() {
+            output.push_str("─────────────────────────────────────────\n");
+            output.push_str("  🎯 Confidence Calibration:\n");
+
+            if !high_conf.is_empty() {
+                let high_wins = high_conf
+                    .iter()
+                    .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                    .count();
+                let high_wr = (high_wins as f64 / high_conf.len() as f64) * 100.0;
+                let high_pnl: f64 = high_conf
+                    .iter()
+                    .map(|t| t.realized_pnl.unwrap_or(0.0))
+                    .sum();
+                output.push_str(&format!(
+                    "    High confidence (7-10): {} trades, {:.0}% WR, {}\n",
+                    high_conf.len(),
+                    high_wr,
+                    format_currency(high_pnl),
+                ));
+            }
+
+            if !low_conf.is_empty() {
+                let low_wins = low_conf
+                    .iter()
+                    .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                    .count();
+                let low_wr = (low_wins as f64 / low_conf.len() as f64) * 100.0;
+                let low_pnl: f64 = low_conf.iter().map(|t| t.realized_pnl.unwrap_or(0.0)).sum();
+                output.push_str(&format!(
+                    "    Low confidence (1-4):  {} trades, {:.0}% WR, {}\n",
+                    low_conf.len(),
+                    low_wr,
+                    format_currency(low_pnl),
+                ));
+            }
+
+            if high_conf.len() >= 3 && low_conf.len() >= 3 {
+                let high_wins = high_conf
+                    .iter()
+                    .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                    .count();
+                let low_wins = low_conf
+                    .iter()
+                    .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                    .count();
+                let high_wr = (high_wins as f64 / high_conf.len() as f64) * 100.0;
+                let low_wr = (low_wins as f64 / low_conf.len() as f64) * 100.0;
+                if high_wr > low_wr + 10.0 {
+                    output.push_str(
+                        "    ✅ Your confidence correlates with outcomes — trust your instincts!\n",
+                    );
+                } else if low_wr > high_wr + 10.0 {
+                    output.push_str("    ⚠️  You trade BETTER when less confident — overconfidence may be an issue.\n");
+                } else {
+                    output.push_str(
+                        "    💡 Confidence doesn't predict outcomes much yet. Keep tracking.\n",
+                    );
+                }
+            }
+        }
+
+        // Edge analysis: average risk/reward
+        let winning_trades: Vec<f64> = closed
+            .iter()
+            .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+            .map(|t| t.realized_pnl.unwrap_or(0.0))
+            .collect();
+        let losing_trades: Vec<f64> = closed
+            .iter()
+            .filter(|t| t.realized_pnl.unwrap_or(0.0) < 0.0)
+            .map(|t| t.realized_pnl.unwrap_or(0.0).abs())
+            .collect();
+
+        if !winning_trades.is_empty() && !losing_trades.is_empty() {
+            let avg_win = winning_trades.iter().sum::<f64>() / winning_trades.len() as f64;
+            let avg_loss = losing_trades.iter().sum::<f64>() / losing_trades.len() as f64;
+            let rr_ratio = if avg_loss > 0.0 {
+                avg_win / avg_loss
+            } else {
+                0.0
+            };
+
+            output.push_str("─────────────────────────────────────────\n");
+            output.push_str("  ⚡ Edge Analysis:\n");
+            output.push_str(&format!(
+                "    Avg Win:        {}\n",
+                format_currency(avg_win)
+            ));
+            output.push_str(&format!(
+                "    Avg Loss:       {}\n",
+                format_currency(-avg_loss)
+            ));
+            output.push_str(&format!("    Risk/Reward:    {:.2}:1\n", rr_ratio));
+
+            // Expected value per trade
+            let ev = (win_rate / 100.0) * avg_win - ((100.0 - win_rate) / 100.0) * avg_loss;
+            output.push_str(&format!(
+                "    Expected Value: {} per trade\n",
+                format_currency(ev)
+            ));
+
+            if ev > 0.0 && rr_ratio >= 1.5 {
+                output.push_str("    ✅ Positive edge — your strategy is working.\n");
+            } else if ev > 0.0 {
+                output
+                    .push_str("    🟡 Slightly positive edge — consider improving risk/reward.\n");
+            } else {
+                output.push_str("    🔴 Negative edge — review your strategy and entries.\n");
+            }
+        }
+
+        output.push_str("═════════════════════════════════════════\n");
+        output.push_str("  💡 Trade more to get more meaningful statistics.\n");
+        output.push_str("  ⚠️  Paper trading only — no real money at risk.\n");
+        output
+    }
     /// Optional `limit` to show only the most recent N trades (0 = show all).
     pub fn history_report(&self, limit: usize) -> String {
         use super::format::{format_currency, format_currency_unsigned};
@@ -655,7 +926,10 @@ impl Portfolio {
                 breakeven.len(),
             ));
             output.push_str(&format!("  Avg Win:        {}\n", format_currency(avg_win)));
-            output.push_str(&format!("  Avg Loss:       {}\n", format_currency(avg_loss)));
+            output.push_str(&format!(
+                "  Avg Loss:       {}\n",
+                format_currency(avg_loss)
+            ));
             if profit_factor.is_finite() {
                 output.push_str(&format!("  Profit Factor:  {:.2}\n", profit_factor));
             }
@@ -1042,7 +1316,11 @@ mod tests {
         // BTC unrealized: 0.5 * (90000-80000) = 5000
         // AAPL unrealized: 10 * (210-200) = 100
         // Total unrealized: 5100
-        assert!(summary.contains("+$5,100.00"), "Summary should contain formatted P&L, got: {}", summary);
+        assert!(
+            summary.contains("+$5,100.00"),
+            "Summary should contain formatted P&L, got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -1066,7 +1344,11 @@ mod tests {
 
         let summary = p.summary_with_prices(&prices);
         // Should show negative unrealized P&L
-        assert!(summary.contains("-$5,000.00"), "Summary should contain formatted loss, got: {}", summary);
+        assert!(
+            summary.contains("-$5,000.00"),
+            "Summary should contain formatted loss, got: {}",
+            summary
+        );
     }
 
     #[test]
@@ -1315,5 +1597,68 @@ mod tests {
         }
         let report = p.history_report(3);
         assert!(report.contains("Showing 3 of 10"));
+    }
+
+    #[test]
+    fn test_performance_report_empty() {
+        let p = Portfolio::new();
+        let report = p.performance_report();
+        assert!(report.contains("Performance Dashboard"));
+        assert!(report.contains("No closed trades yet"));
+    }
+
+    #[test]
+    fn test_performance_report_with_trades() {
+        let mut p = Portfolio::new();
+        // Win on AAPL
+        let id1 = p.open_trade("AAPL", "buy", 10.0, 100.0, "W", 8).unwrap();
+        p.close_trade(id1, 110.0).unwrap();
+        // Win on AAPL
+        let id2 = p.open_trade("AAPL", "buy", 10.0, 105.0, "W", 7).unwrap();
+        p.close_trade(id2, 115.0).unwrap();
+        // Loss on MSFT
+        let id3 = p.open_trade("MSFT", "buy", 5.0, 200.0, "L", 3).unwrap();
+        p.close_trade(id3, 190.0).unwrap();
+
+        let report = p.performance_report();
+        assert!(
+            report.contains("Performance Dashboard"),
+            "Should have dashboard header"
+        );
+        assert!(report.contains("AAPL"), "Should show AAPL stats");
+        assert!(report.contains("MSFT"), "Should show MSFT stats");
+        assert!(
+            report.contains("Performance by Symbol"),
+            "Should show per-symbol breakdown"
+        );
+        assert!(report.contains("Streak"), "Should show streaks");
+        assert!(
+            report.contains("Edge Analysis"),
+            "Should show edge analysis"
+        );
+    }
+
+    #[test]
+    fn test_performance_report_confidence_calibration() {
+        let mut p = Portfolio::new();
+        // High confidence wins
+        for i in 0..5 {
+            let id = p
+                .open_trade("BTC", "buy", 0.1, 80000.0 + i as f64 * 100.0, "HC", 8)
+                .unwrap();
+            p.close_trade(id, 81000.0 + i as f64 * 100.0).unwrap();
+        }
+        // Low confidence losses
+        for i in 0..5 {
+            let id = p
+                .open_trade("ETH", "buy", 1.0, 3000.0 + i as f64 * 10.0, "LC", 3)
+                .unwrap();
+            p.close_trade(id, 2900.0 + i as f64 * 10.0).unwrap();
+        }
+        let report = p.performance_report();
+        assert!(
+            report.contains("Confidence Calibration"),
+            "Should show confidence analysis"
+        );
     }
 }
