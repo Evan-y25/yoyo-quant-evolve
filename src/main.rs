@@ -2450,7 +2450,9 @@ async fn handle_scan_command(input: &str) {
         // Default to watchlist
         let wl = tools::watchlist::Watchlist::load();
         if wl.is_empty() {
-            println!("\n{DIM}  📋 Your watchlist is empty. Add symbols or specify them directly:{RESET}");
+            println!(
+                "\n{DIM}  📋 Your watchlist is empty. Add symbols or specify them directly:{RESET}"
+            );
             println!("{DIM}  /scan bitcoin ethereum solana AAPL MSFT{RESET}");
             println!("{DIM}  Or: /wl + bitcoin  to add to watchlist first{RESET}\n");
             return;
@@ -2465,7 +2467,10 @@ async fn handle_scan_command(input: &str) {
         return;
     }
 
-    println!("{DIM}  Scanning {} assets for signals (30d data)...{RESET}", symbols.len());
+    println!(
+        "{DIM}  Scanning {} assets for signals (30d data)...{RESET}",
+        symbols.len()
+    );
 
     // Fetch price data for all symbols concurrently
     let futures: Vec<_> = symbols
@@ -2544,7 +2549,10 @@ async fn handle_scan_command(input: &str) {
 
     // Print results
     println!();
-    println!("{BOLD}{CYAN}  🔍 Signal Scanner ({} assets){RESET}", scan_results.len());
+    println!(
+        "{BOLD}{CYAN}  🔍 Signal Scanner ({} assets){RESET}",
+        scan_results.len()
+    );
     println!("{DIM}  ═════════════════════════════════════════════════════════════{RESET}");
     println!(
         "{BOLD}  {:<16} {:>10} {:>8} {:>5}  {:>6}  {}{RESET}",
