@@ -1690,9 +1690,7 @@ async fn handle_dashboard_command() {
 
     println!();
     println!("{BOLD}  💼 Portfolio{RESET}");
-    println!(
-        "{DIM}  ─────────────────────────────────────────{RESET}"
-    );
+    println!("{DIM}  ─────────────────────────────────────────{RESET}");
     println!(
         "  Cash: {}  |  Open: {}  |  Closed: {}",
         tools::format::format_currency_unsigned(portfolio.cash),
@@ -1712,9 +1710,7 @@ async fn handle_dashboard_command() {
     if !open.is_empty() {
         println!();
         println!("{BOLD}  📈 Open Positions{RESET}");
-        println!(
-            "{DIM}  ─────────────────────────────────────────{RESET}"
-        );
+        println!("{DIM}  ─────────────────────────────────────────{RESET}");
 
         // Gather unique symbols for price fetching
         let symbols: std::collections::HashSet<String> =
@@ -1784,9 +1780,7 @@ async fn handle_dashboard_command() {
     if !wl.is_empty() {
         println!();
         println!("{BOLD}  📋 Watchlist ({} assets){RESET}", wl.len());
-        println!(
-            "{DIM}  ─────────────────────────────────────────{RESET}"
-        );
+        println!("{DIM}  ─────────────────────────────────────────{RESET}");
 
         let symbols: Vec<String> = wl.symbols.iter().cloned().collect();
         let futures: Vec<_> = symbols
@@ -1804,11 +1798,7 @@ async fn handle_dashboard_command() {
         for (sym, result) in &results {
             match result {
                 Ok((price, name)) => {
-                    println!(
-                        "  {} — {}",
-                        name,
-                        tools::format::format_price(*price),
-                    );
+                    println!("  {} — {}", name, tools::format::format_price(*price),);
                 }
                 Err(_) => {
                     println!("  {sym} — ❌ error");
@@ -1823,9 +1813,7 @@ async fn handle_dashboard_command() {
     if !active.is_empty() {
         println!();
         println!("{BOLD}  🔔 Active Alerts ({} pending){RESET}", active.len());
-        println!(
-            "{DIM}  ─────────────────────────────────────────{RESET}"
-        );
+        println!("{DIM}  ─────────────────────────────────────────{RESET}");
         for alert in &active {
             let arrow = if alert.condition == "above" {
                 "↑"

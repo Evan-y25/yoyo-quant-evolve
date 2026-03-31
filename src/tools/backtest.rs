@@ -181,6 +181,14 @@ pub enum Strategy {
         slow: usize,
         signal_period: usize,
     },
+    /// Stochastic Oscillator: buy when %K crosses above %D in oversold zone,
+    /// sell when %K crosses below %D in overbought zone.
+    StochasticOscillator {
+        period: usize,
+        signal_period: usize,
+        oversold: f64,
+        overbought: f64,
+    },
 }
 
 impl Strategy {
@@ -212,6 +220,17 @@ impl Strategy {
                 signal_period,
             } => {
                 format!("MACD Crossover ({}/{}/{})", fast, slow, signal_period)
+            }
+            Strategy::StochasticOscillator {
+                period,
+                signal_period,
+                oversold,
+                overbought,
+            } => {
+                format!(
+                    "Stochastic ({},{},{}/{})",
+                    period, signal_period, oversold, overbought
+                )
             }
         }
     }
@@ -246,6 +265,12 @@ pub fn run_backtest(
             slow,
             signal_period,
         } => backtest_macd_crossover(prices, *fast, *slow, *signal_period),
+        Strategy::StochasticOscillator {
+            period,
+            signal_period,
+            oversold,
+            overbought,
+        } => backtest_stochastic(prices, *period, *signal_period, *oversold, *overbought),
     };
 
     let buy_hold_return_pct = if prices.len() >= 2 && prices[0] > 0.0 {
@@ -759,6 +784,126 @@ fn backtest_macd_crossover(
     trades
 }
 
+/// Stochastic Oscillator strategy.
+/// Buy when %K crosses above %D in oversold territory (below oversold threshold).
+/// Sell when %K crosses below %D in overbought territory (above overbought threshold).
+///
+/// Since we often only have close prices (not separate high/low), we approximate
+/// high/low using a rolling max/min of close prices.
+fn backtest_stochastic(
+    prices: &[f64],
+    period: usize,
+    signal_period: usize,
+    oversold: f64,
+    overbought: f64,
+) -> Vec<BacktestTrade> {
+    let mut trades = Vec::new();
+    if prices.len() < period + signal_period + 1 {
+        return trades;
+    }
+
+    // Compute %K values at each point
+    // %K = (Close - Lowest Low) / (Highest High - Lowest Low) * 100
+    let mut k_values: Vec<Option<f64>> = Vec::with_capacity(prices.len());
+    for i in 0..prices.len() {
+        if i + 1 >= period {
+            let window = &prices[i + 1 - period..=i];
+            let highest = window.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let lowest = window.iter().copied().fold(f64::INFINITY, f64::min);
+            let range = highest - lowest;
+            let k = if range > 0.0 {
+                ((prices[i] - lowest) / range) * 100.0
+            } else {
+                50.0
+            };
+            k_values.push(Some(k));
+        } else {
+            k_values.push(None);
+        }
+    }
+
+    // Compute %D values (SMA of %K over signal_period)
+    let mut d_values: Vec<Option<f64>> = Vec::with_capacity(prices.len());
+    for i in 0..prices.len() {
+        if i + 1 >= period + signal_period - 1 {
+            let start = i + 1 - signal_period;
+            let k_window: Vec<f64> = (start..=i)
+                .filter_map(|j| k_values.get(j).and_then(|v| *v))
+                .collect();
+            if k_window.len() == signal_period {
+                let d = k_window.iter().sum::<f64>() / signal_period as f64;
+                d_values.push(Some(d));
+            } else {
+                d_values.push(None);
+            }
+        } else {
+            d_values.push(None);
+        }
+    }
+
+    let mut in_position = false;
+    let mut entry_idx = 0;
+    let mut entry_price = 0.0;
+
+    for i in 1..prices.len() {
+        let (curr_k, curr_d) = match (
+            k_values.get(i).and_then(|v| *v),
+            d_values.get(i).and_then(|v| *v),
+        ) {
+            (Some(k), Some(d)) => (k, d),
+            _ => continue,
+        };
+        let (prev_k, prev_d) = match (
+            k_values.get(i - 1).and_then(|v| *v),
+            d_values.get(i - 1).and_then(|v| *v),
+        ) {
+            (Some(k), Some(d)) => (k, d),
+            _ => continue,
+        };
+
+        // Buy signal: %K crosses above %D while in oversold zone
+        if !in_position && prev_k <= prev_d && curr_k > curr_d && curr_k < oversold + 15.0 {
+            in_position = true;
+            entry_idx = i;
+            entry_price = prices[i];
+        }
+        // Sell signal: %K crosses below %D while in overbought zone
+        else if in_position && prev_k >= prev_d && curr_k < curr_d && curr_k > overbought - 15.0 {
+            let exit_price = prices[i];
+            let pnl = exit_price - entry_price;
+            let pnl_pct = (pnl / entry_price) * 100.0;
+            trades.push(BacktestTrade {
+                entry_idx,
+                exit_idx: i,
+                entry_price,
+                exit_price,
+                side: "buy",
+                pnl,
+                pnl_pct,
+            });
+            in_position = false;
+        }
+    }
+
+    // Close any open position at the end
+    if in_position {
+        let exit_price = *prices.last().unwrap();
+        let pnl = exit_price - entry_price;
+        let pnl_pct = (pnl / entry_price) * 100.0;
+        trades.push(BacktestTrade {
+            entry_idx,
+            exit_idx: prices.len() - 1,
+            entry_price,
+            exit_price,
+            side: "buy",
+            pnl,
+            pnl_pct,
+        });
+    }
+
+    trades
+}
+
 /// Calculate annualized Sharpe ratio from trade returns.
 /// Assumes risk-free rate of 0 for simplicity.
 fn calculate_sharpe(returns: &[f64]) -> f64 {
@@ -837,6 +982,21 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
                 signal_period,
             })
         }
+        Some("stoch") | Some("stochastic") => {
+            let period = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(14);
+            let signal_period = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(3);
+            let oversold = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(20.0);
+            let overbought = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(80.0);
+            if period == 0 || signal_period == 0 || oversold >= overbought {
+                return None;
+            }
+            Some(Strategy::StochasticOscillator {
+                period,
+                signal_period,
+                oversold,
+                overbought,
+            })
+        }
         _ => None,
     }
 }
@@ -864,6 +1024,10 @@ pub fn available_strategies() -> Vec<(&'static str, &'static str)> {
         (
             "macd",
             "MACD Crossover (12/26/9) — buy on bullish crossover, sell on bearish",
+        ),
+        (
+            "stoch",
+            "Stochastic Oscillator (14/3, 20/80) — buy oversold crossover, sell overbought",
         ),
     ]
 }
