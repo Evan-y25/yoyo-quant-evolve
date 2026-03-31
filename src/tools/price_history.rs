@@ -512,9 +512,11 @@ pub struct SignalCounts {
     pub neutral: u32,
     pub verdict: String,
     pub emoji: String,
+    /// Individual signal labels: (indicator_name, signal_emoji)
+    pub signals: Vec<(String, String)>,
 }
 
-/// Compute signal counts from price data (public for use by MTF analysis).
+/// Compute signal counts from price data (public for use by MTF analysis and format_signal_summary).
 pub fn compute_signal_counts(
     prices: &[f64],
     current_price: f64,
@@ -529,28 +531,36 @@ pub fn compute_signal_counts(
     let mut bullish: u32 = 0;
     let mut bearish: u32 = 0;
     let mut neutral: u32 = 0;
+    let mut signals: Vec<(String, String)> = Vec::new();
 
     // SMA trend
     if let (Some(sma7), Some(sma20)) = (indicators::sma(prices, 7), indicators::sma(prices, 20)) {
         if current_price > sma7 && sma7 > sma20 {
             bullish += 1;
+            signals.push(("SMA".into(), "🟢".into()));
         } else if current_price < sma7 && sma7 < sma20 {
             bearish += 1;
+            signals.push(("SMA".into(), "🔴".into()));
         } else {
             neutral += 1;
+            signals.push(("SMA".into(), "⚪".into()));
         }
     }
 
     // RSI
     if let Some(rsi_val) = indicators::rsi(prices, 14) {
         if rsi_val >= 70.0 {
-            bearish += 1;
+            bearish += 1; // Overbought = bearish signal (reversal likely)
+            signals.push(("RSI".into(), "🔴".into()));
         } else if rsi_val <= 30.0 {
-            bullish += 1;
+            bullish += 1; // Oversold = bullish signal (bounce likely)
+            signals.push(("RSI".into(), "🟢".into()));
         } else if rsi_val >= 50.0 {
             bullish += 1;
+            signals.push(("RSI".into(), "🟢".into()));
         } else {
             bearish += 1;
+            signals.push(("RSI".into(), "🔴".into()));
         }
     }
 
@@ -558,23 +568,30 @@ pub fn compute_signal_counts(
     if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
         if macd_result.histogram > 0.0 {
             bullish += 1;
+            signals.push(("MACD".into(), "🟢".into()));
         } else if macd_result.histogram < 0.0 {
             bearish += 1;
+            signals.push(("MACD".into(), "🔴".into()));
         } else {
             neutral += 1;
+            signals.push(("MACD".into(), "⚪".into()));
         }
     }
 
     // Bollinger Bands
     if let Some(bb) = indicators::bollinger_bands(prices, 20, 2.0) {
         if bb.percent_b > 0.8 {
-            bearish += 1;
+            bearish += 1; // Near upper band = potential reversal
+            signals.push(("BB".into(), "🔴".into()));
         } else if bb.percent_b < 0.2 {
-            bullish += 1;
+            bullish += 1; // Near lower band = potential bounce
+            signals.push(("BB".into(), "🟢".into()));
         } else if bb.percent_b > 0.5 {
             bullish += 1;
+            signals.push(("BB".into(), "🟢".into()));
         } else {
             bearish += 1;
+            signals.push(("BB".into(), "🔴".into()));
         }
     }
 
@@ -583,10 +600,13 @@ pub fn compute_signal_counts(
         if let Some(vwap_val) = indicators::vwap(prices, vols) {
             if current_price > vwap_val * 1.005 {
                 bullish += 1;
+                signals.push(("VWAP".into(), "🟢".into()));
             } else if current_price < vwap_val * 0.995 {
                 bearish += 1;
+                signals.push(("VWAP".into(), "🔴".into()));
             } else {
                 neutral += 1;
+                signals.push(("VWAP".into(), "⚪".into()));
             }
         }
     }
@@ -596,10 +616,13 @@ pub fn compute_signal_counts(
         if let Some(stoch) = indicators::stochastic(h, l, prices, 14, 3) {
             if stoch.k >= 80.0 {
                 bearish += 1;
+                signals.push(("Stoch".into(), "🔴".into()));
             } else if stoch.k <= 20.0 || stoch.k > stoch.d {
                 bullish += 1;
+                signals.push(("Stoch".into(), "🟢".into()));
             } else {
                 bearish += 1;
+                signals.push(("Stoch".into(), "🔴".into()));
             }
         }
     }
@@ -627,11 +650,12 @@ pub fn compute_signal_counts(
         neutral,
         verdict: verdict.to_string(),
         emoji: emoji.to_string(),
+        signals,
     })
 }
 
 /// Aggregate all indicators into a single bullish/bearish/neutral signal.
-/// Counts the number of bullish vs bearish signals from each indicator.
+/// Uses compute_signal_counts internally to avoid logic duplication.
 fn format_signal_summary(
     prices: &[f64],
     current_price: f64,
@@ -639,136 +663,26 @@ fn format_signal_summary(
     highs: Option<&[f64]>,
     lows: Option<&[f64]>,
 ) -> String {
-    let mut bullish: u32 = 0;
-    let mut bearish: u32 = 0;
-    let mut neutral: u32 = 0;
-    let mut signals: Vec<(&str, &str)> = Vec::new();
-
-    // SMA trend
-    if let (Some(sma7), Some(sma20)) = (indicators::sma(prices, 7), indicators::sma(prices, 20)) {
-        if current_price > sma7 && sma7 > sma20 {
-            bullish += 1;
-            signals.push(("SMA", "🟢"));
-        } else if current_price < sma7 && sma7 < sma20 {
-            bearish += 1;
-            signals.push(("SMA", "🔴"));
-        } else {
-            neutral += 1;
-            signals.push(("SMA", "⚪"));
-        }
-    }
-
-    // RSI
-    if let Some(rsi_val) = indicators::rsi(prices, 14) {
-        if rsi_val >= 70.0 {
-            bearish += 1; // Overbought = bearish signal (reversal likely)
-            signals.push(("RSI", "🔴"));
-        } else if rsi_val <= 30.0 {
-            bullish += 1; // Oversold = bullish signal (bounce likely)
-            signals.push(("RSI", "🟢"));
-        } else if rsi_val >= 50.0 {
-            bullish += 1;
-            signals.push(("RSI", "🟢"));
-        } else {
-            bearish += 1;
-            signals.push(("RSI", "🔴"));
-        }
-    }
-
-    // MACD
-    if let Some(macd_result) = indicators::macd(prices, 12, 26, 9) {
-        if macd_result.histogram > 0.0 {
-            bullish += 1;
-            signals.push(("MACD", "🟢"));
-        } else if macd_result.histogram < 0.0 {
-            bearish += 1;
-            signals.push(("MACD", "🔴"));
-        } else {
-            neutral += 1;
-            signals.push(("MACD", "⚪"));
-        }
-    }
-
-    // Bollinger Bands
-    if let Some(bb) = indicators::bollinger_bands(prices, 20, 2.0) {
-        if bb.percent_b > 0.8 {
-            bearish += 1; // Near upper band = potential reversal
-            signals.push(("BB", "🔴"));
-        } else if bb.percent_b < 0.2 {
-            bullish += 1; // Near lower band = potential bounce
-            signals.push(("BB", "🟢"));
-        } else if bb.percent_b > 0.5 {
-            bullish += 1;
-            signals.push(("BB", "🟢"));
-        } else {
-            bearish += 1;
-            signals.push(("BB", "🔴"));
-        }
-    }
-
-    // VWAP
-    if let Some(vols) = volumes {
-        if let Some(vwap_val) = indicators::vwap(prices, vols) {
-            if current_price > vwap_val * 1.005 {
-                bullish += 1;
-                signals.push(("VWAP", "🟢"));
-            } else if current_price < vwap_val * 0.995 {
-                bearish += 1;
-                signals.push(("VWAP", "🔴"));
-            } else {
-                neutral += 1;
-                signals.push(("VWAP", "⚪"));
-            }
-        }
-    }
-
-    // Stochastic
-    if let (Some(h), Some(l)) = (highs, lows) {
-        if let Some(stoch) = indicators::stochastic(h, l, prices, 14, 3) {
-            if stoch.k >= 80.0 {
-                bearish += 1;
-                signals.push(("Stoch", "🔴"));
-            } else if stoch.k <= 20.0 || stoch.k > stoch.d {
-                bullish += 1;
-                signals.push(("Stoch", "🟢"));
-            } else {
-                bearish += 1;
-                signals.push(("Stoch", "🔴"));
-            }
-        }
-    }
-
-    let total = bullish + bearish + neutral;
-    if total == 0 {
-        return String::new();
-    }
+    let counts = match compute_signal_counts(prices, current_price, volumes, highs, lows) {
+        Some(c) => c,
+        None => return String::new(),
+    };
 
     let mut output = String::new();
     output.push_str("─────────────────────────────────────────\n");
 
     // Signal dots in a row
-    let signal_row: Vec<String> = signals
+    let signal_row: Vec<String> = counts
+        .signals
         .iter()
         .map(|(name, dot)| format!("{} {}", dot, name))
         .collect();
     output.push_str(&format!("  Signals:  {}\n", signal_row.join("  ")));
 
     // Overall verdict
-    let (emoji, verdict) = if bullish > bearish + 1 {
-        ("🟢", "Bullish")
-    } else if bearish > bullish + 1 {
-        ("🔴", "Bearish")
-    } else if bullish > bearish {
-        ("🟢", "Slightly Bullish")
-    } else if bearish > bullish {
-        ("🔴", "Slightly Bearish")
-    } else {
-        ("⚪", "Neutral / Mixed")
-    };
-
     output.push_str(&format!(
         "  Overall:  {} {} ({} bullish, {} bearish, {} neutral)\n",
-        emoji, verdict, bullish, bearish, neutral,
+        counts.emoji, counts.verdict, counts.bullish, counts.bearish, counts.neutral,
     ));
     output.push_str(
         "  ⚠️  Technical analysis is not financial advice. Always do your own research.\n",
