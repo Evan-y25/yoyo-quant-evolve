@@ -1718,7 +1718,7 @@ async fn handle_backtest_command(input: &str) {
                     return;
                 }
                 println!(
-                    "{DIM}  Running 5 strategies on {} data points...{RESET}",
+                    "{DIM}  Running 6 strategies on {} data points...{RESET}",
                     prices.len()
                 );
                 let result = tools::backtest::run_comparison(&prices, symbol, range);

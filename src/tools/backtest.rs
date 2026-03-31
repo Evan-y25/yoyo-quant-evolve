@@ -174,6 +174,13 @@ pub enum Strategy {
     /// Bollinger Band squeeze: buy when bands narrow then expand upward,
     /// sell when they narrow then expand downward.
     BollingerSqueeze { period: usize, std_dev: f64 },
+    /// MACD crossover: buy when MACD crosses above signal line,
+    /// sell when MACD crosses below signal line.
+    MacdCrossover {
+        fast: usize,
+        slow: usize,
+        signal_period: usize,
+    },
 }
 
 impl Strategy {
@@ -198,6 +205,13 @@ impl Strategy {
             }
             Strategy::BollingerSqueeze { period, std_dev } => {
                 format!("Bollinger Squeeze ({}, {}σ)", period, std_dev)
+            }
+            Strategy::MacdCrossover {
+                fast,
+                slow,
+                signal_period,
+            } => {
+                format!("MACD Crossover ({}/{}/{})", fast, slow, signal_period)
             }
         }
     }
@@ -227,6 +241,11 @@ pub fn run_backtest(
         Strategy::BollingerSqueeze { period, std_dev } => {
             backtest_bollinger_squeeze(prices, *period, *std_dev)
         }
+        Strategy::MacdCrossover {
+            fast,
+            slow,
+            signal_period,
+        } => backtest_macd_crossover(prices, *fast, *slow, *signal_period),
     };
 
     let buy_hold_return_pct = if prices.len() >= 2 && prices[0] > 0.0 {
@@ -625,6 +644,121 @@ fn backtest_bollinger_squeeze(prices: &[f64], period: usize, std_dev: f64) -> Ve
     trades
 }
 
+/// MACD crossover strategy.
+/// Buy when MACD line crosses above signal line, sell when it crosses below.
+/// Uses the standard approach of computing EMA(fast) - EMA(slow) and then
+/// EMA of that difference as the signal line.
+fn backtest_macd_crossover(
+    prices: &[f64],
+    fast: usize,
+    slow: usize,
+    signal_period: usize,
+) -> Vec<BacktestTrade> {
+    let mut trades = Vec::new();
+    if prices.len() < slow + signal_period || fast >= slow || fast == 0 || slow == 0 {
+        return trades;
+    }
+
+    let multiplier_fast = 2.0 / (fast as f64 + 1.0);
+    let multiplier_slow = 2.0 / (slow as f64 + 1.0);
+
+    // Build full MACD line series
+    // Fast EMA initialization
+    let mut fast_ema = prices[..fast].iter().sum::<f64>() / fast as f64;
+    for &price in &prices[fast..slow] {
+        fast_ema = (price - fast_ema) * multiplier_fast + fast_ema;
+    }
+    let mut slow_ema = prices[..slow].iter().sum::<f64>() / slow as f64;
+
+    let mut macd_series: Vec<f64> = Vec::new();
+    macd_series.push(fast_ema - slow_ema);
+
+    for &price in &prices[slow..] {
+        fast_ema = (price - fast_ema) * multiplier_fast + fast_ema;
+        slow_ema = (price - slow_ema) * multiplier_slow + slow_ema;
+        macd_series.push(fast_ema - slow_ema);
+    }
+
+    if macd_series.len() < signal_period {
+        return trades;
+    }
+
+    // Build signal line series
+    let multiplier_signal = 2.0 / (signal_period as f64 + 1.0);
+    let mut signal_ema = macd_series[..signal_period].iter().sum::<f64>() / signal_period as f64;
+    let mut signal_series: Vec<f64> = vec![0.0; signal_period]; // padding
+    signal_series[signal_period - 1] = signal_ema;
+    for i in signal_period..macd_series.len() {
+        signal_ema = (macd_series[i] - signal_ema) * multiplier_signal + signal_ema;
+        signal_series.push(signal_ema);
+    }
+
+    // The MACD series starts at price index `slow - 1` (0-indexed in macd_series)
+    // So macd_series[i] corresponds to prices[slow - 1 + i]
+    let price_offset = slow - 1;
+
+    let mut in_position = false;
+    let mut entry_idx = 0;
+    let mut entry_price = 0.0;
+
+    // Start from signal_period (where signal line is first valid)
+    for i in signal_period..macd_series.len() {
+        if i == 0 {
+            continue;
+        }
+        let prev_macd = macd_series[i - 1];
+        let prev_signal = signal_series[i - 1];
+        let curr_macd = macd_series[i];
+        let curr_signal = signal_series[i];
+
+        let price_idx = price_offset + i;
+        if price_idx >= prices.len() {
+            break;
+        }
+
+        // Bullish crossover: MACD crosses above signal
+        if !in_position && prev_macd <= prev_signal && curr_macd > curr_signal {
+            in_position = true;
+            entry_idx = price_idx;
+            entry_price = prices[price_idx];
+        }
+        // Bearish crossover: MACD crosses below signal
+        else if in_position && prev_macd >= prev_signal && curr_macd < curr_signal {
+            let exit_price = prices[price_idx];
+            let pnl = exit_price - entry_price;
+            let pnl_pct = (pnl / entry_price) * 100.0;
+            trades.push(BacktestTrade {
+                entry_idx,
+                exit_idx: price_idx,
+                entry_price,
+                exit_price,
+                side: "buy",
+                pnl,
+                pnl_pct,
+            });
+            in_position = false;
+        }
+    }
+
+    // Close any open position at the end
+    if in_position {
+        let exit_price = *prices.last().unwrap();
+        let pnl = exit_price - entry_price;
+        let pnl_pct = (pnl / entry_price) * 100.0;
+        trades.push(BacktestTrade {
+            entry_idx,
+            exit_idx: prices.len() - 1,
+            entry_price,
+            exit_price,
+            side: "buy",
+            pnl,
+            pnl_pct,
+        });
+    }
+
+    trades
+}
+
 /// Calculate annualized Sharpe ratio from trade returns.
 /// Assumes risk-free rate of 0 for simplicity.
 fn calculate_sharpe(returns: &[f64]) -> f64 {
@@ -690,6 +824,19 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
                 std_dev: 2.0,
             })
         }
+        Some("macd") => {
+            let fast = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(12);
+            let slow = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(26);
+            let signal_period = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(9);
+            if fast >= slow || fast == 0 || slow == 0 || signal_period == 0 {
+                return None;
+            }
+            Some(Strategy::MacdCrossover {
+                fast,
+                slow,
+                signal_period,
+            })
+        }
         _ => None,
     }
 }
@@ -713,6 +860,10 @@ pub fn available_strategies() -> Vec<(&'static str, &'static str)> {
         (
             "bb",
             "Bollinger Squeeze (20, 2σ) — buy breakout from low volatility squeeze",
+        ),
+        (
+            "macd",
+            "MACD Crossover (12/26/9) — buy on bullish crossover, sell on bearish",
         ),
     ]
 }
@@ -741,6 +892,11 @@ pub fn all_default_strategies() -> Vec<Strategy> {
         Strategy::BollingerSqueeze {
             period: 20,
             std_dev: 2.0,
+        },
+        Strategy::MacdCrossover {
+            fast: 12,
+            slow: 26,
+            signal_period: 9,
         },
     ]
 }
@@ -1135,7 +1291,7 @@ mod tests {
     fn test_available_strategies_not_empty() {
         let strategies = available_strategies();
         assert!(!strategies.is_empty());
-        assert!(strategies.len() >= 5);
+        assert!(strategies.len() >= 6);
     }
 
     #[test]
@@ -1194,7 +1350,7 @@ mod tests {
     #[test]
     fn test_all_default_strategies() {
         let strategies = all_default_strategies();
-        assert_eq!(strategies.len(), 5, "Should have 5 default strategies");
+        assert_eq!(strategies.len(), 6, "Should have 6 default strategies");
         // Verify all names are non-empty
         for s in &strategies {
             assert!(!s.name().is_empty());
@@ -1208,7 +1364,7 @@ mod tests {
         assert_eq!(result.symbol, "TEST");
         assert_eq!(result.range, "90d");
         assert_eq!(result.data_points, 200);
-        assert_eq!(result.results.len(), 5, "Should run all 5 strategies");
+        assert_eq!(result.results.len(), 6, "Should run all 6 strategies");
     }
 
     #[test]
@@ -1255,5 +1411,90 @@ mod tests {
         assert_eq!(truncate_str("hello world foo", 10), "hello w...");
         assert_eq!(truncate_str("hello", 5), "hello");
         assert_eq!(truncate_str("hi", 2), "hi");
+    }
+
+    #[test]
+    fn test_macd_crossover_basic() {
+        let prices = oscillating_prices(200);
+        let result = run_backtest(
+            &prices,
+            &Strategy::MacdCrossover {
+                fast: 12,
+                slow: 26,
+                signal_period: 9,
+            },
+            "TEST",
+            "90d",
+        );
+        assert!(result.data_points == 200);
+        // Oscillating data should produce some MACD crossovers
+    }
+
+    #[test]
+    fn test_macd_crossover_uptrend() {
+        let prices = trending_up_prices(100);
+        let result = run_backtest(
+            &prices,
+            &Strategy::MacdCrossover {
+                fast: 12,
+                slow: 26,
+                signal_period: 9,
+            },
+            "TEST",
+            "90d",
+        );
+        // In an uptrend, MACD crossover should capture some gains
+        assert!(result.data_points == 100);
+    }
+
+    #[test]
+    fn test_macd_crossover_insufficient_data() {
+        let prices = vec![100.0; 20];
+        let result = run_backtest(
+            &prices,
+            &Strategy::MacdCrossover {
+                fast: 12,
+                slow: 26,
+                signal_period: 9,
+            },
+            "TEST",
+            "7d",
+        );
+        assert_eq!(result.total_trades, 0);
+    }
+
+    #[test]
+    fn test_parse_strategy_macd() {
+        let s = parse_strategy("macd").unwrap();
+        assert!(matches!(
+            s,
+            Strategy::MacdCrossover {
+                fast: 12,
+                slow: 26,
+                signal_period: 9
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_strategy_macd_custom() {
+        let s = parse_strategy("macd_8_21_5").unwrap();
+        assert!(matches!(
+            s,
+            Strategy::MacdCrossover {
+                fast: 8,
+                slow: 21,
+                signal_period: 5
+            }
+        ));
+    }
+
+    #[test]
+    fn test_available_strategies_count() {
+        let strategies = available_strategies();
+        assert!(
+            strategies.len() >= 6,
+            "Should have at least 6 strategies including MACD"
+        );
     }
 }
