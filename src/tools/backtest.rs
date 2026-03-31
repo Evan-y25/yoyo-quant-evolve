@@ -65,7 +65,11 @@ impl BacktestResult {
             output.push_str(&format!("  Win Rate:      {:.1}%\n", self.win_rate));
             output.push_str(&format!(
                 "  Strategy Return: {}{:.2}% {}\n",
-                if self.total_return_pct >= 0.0 { "+" } else { "" },
+                if self.total_return_pct >= 0.0 {
+                    "+"
+                } else {
+                    ""
+                },
                 self.total_return_pct,
                 if self.total_return_pct > self.buy_hold_return_pct {
                     "🟢 beats buy & hold"
@@ -96,35 +100,31 @@ impl BacktestResult {
                 self.max_drawdown_pct
             ));
             if self.avg_win_pct > 0.0 {
-                output.push_str(&format!(
-                    "  Avg Win:       +{:.2}%\n",
-                    self.avg_win_pct
-                ));
+                output.push_str(&format!("  Avg Win:       +{:.2}%\n", self.avg_win_pct));
             }
             if self.avg_loss_pct < 0.0 {
-                output.push_str(&format!(
-                    "  Avg Loss:      {:.2}%\n",
-                    self.avg_loss_pct
-                ));
+                output.push_str(&format!("  Avg Loss:      {:.2}%\n", self.avg_loss_pct));
             }
             if self.profit_factor.is_finite() {
-                output.push_str(&format!(
-                    "  Profit Factor: {:.2}\n",
-                    self.profit_factor
-                ));
+                output.push_str(&format!("  Profit Factor: {:.2}\n", self.profit_factor));
             }
             if self.sharpe_ratio.is_finite() && self.sharpe_ratio != 0.0 {
-                output.push_str(&format!(
-                    "  Sharpe Ratio:  {:.2}\n",
-                    self.sharpe_ratio
-                ));
+                output.push_str(&format!("  Sharpe Ratio:  {:.2}\n", self.sharpe_ratio));
             }
 
             // Show recent trades (last 10)
             if !self.trades.is_empty() {
                 output.push_str("─────────────────────────────────────────\n");
                 output.push_str("  📊 Recent Trades (last 10):\n");
-                for trade in self.trades.iter().rev().take(10).collect::<Vec<_>>().into_iter().rev() {
+                for trade in self
+                    .trades
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                {
                     let emoji = if trade.pnl >= 0.0 { "🟢" } else { "🔴" };
                     output.push_str(&format!(
                         "    {} {} @ ${:.2} → ${:.2} ({}{:.2}%)\n",
@@ -161,20 +161,37 @@ impl BacktestResult {
 /// Available backtesting strategies.
 pub enum Strategy {
     /// SMA crossover: buy when short SMA crosses above long SMA, sell when it crosses below.
-    SmaCrossover { short_period: usize, long_period: usize },
+    SmaCrossover {
+        short_period: usize,
+        long_period: usize,
+    },
     /// RSI mean-reversion: buy when RSI < oversold, sell when RSI > overbought.
-    RsiMeanReversion { period: usize, oversold: f64, overbought: f64 },
+    RsiMeanReversion {
+        period: usize,
+        oversold: f64,
+        overbought: f64,
+    },
 }
 
 impl Strategy {
     /// Get a human-readable name.
     pub fn name(&self) -> String {
         match self {
-            Strategy::SmaCrossover { short_period, long_period } => {
+            Strategy::SmaCrossover {
+                short_period,
+                long_period,
+            } => {
                 format!("SMA Crossover ({}/{})", short_period, long_period)
             }
-            Strategy::RsiMeanReversion { period, oversold, overbought } => {
-                format!("RSI Mean-Reversion ({}, {}/{})", period, oversold, overbought)
+            Strategy::RsiMeanReversion {
+                period,
+                oversold,
+                overbought,
+            } => {
+                format!(
+                    "RSI Mean-Reversion ({}, {}/{})",
+                    period, oversold, overbought
+                )
             }
         }
     }
@@ -192,12 +209,15 @@ pub fn run_backtest(
     range: &str,
 ) -> BacktestResult {
     let trades = match strategy {
-        Strategy::SmaCrossover { short_period, long_period } => {
-            backtest_sma_crossover(prices, *short_period, *long_period)
-        }
-        Strategy::RsiMeanReversion { period, oversold, overbought } => {
-            backtest_rsi_mean_reversion(prices, *period, *oversold, *overbought)
-        }
+        Strategy::SmaCrossover {
+            short_period,
+            long_period,
+        } => backtest_sma_crossover(prices, *short_period, *long_period),
+        Strategy::RsiMeanReversion {
+            period,
+            oversold,
+            overbought,
+        } => backtest_rsi_mean_reversion(prices, *period, *oversold, *overbought),
     };
 
     let buy_hold_return_pct = if prices.len() >= 2 && prices[0] > 0.0 {
@@ -239,8 +259,16 @@ pub fn run_backtest(
     let total_return_pct = (equity - 1.0) * 100.0;
 
     // Avg win/loss
-    let wins: Vec<f64> = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl_pct).collect();
-    let losses: Vec<f64> = trades.iter().filter(|t| t.pnl <= 0.0).map(|t| t.pnl_pct).collect();
+    let wins: Vec<f64> = trades
+        .iter()
+        .filter(|t| t.pnl > 0.0)
+        .map(|t| t.pnl_pct)
+        .collect();
+    let losses: Vec<f64> = trades
+        .iter()
+        .filter(|t| t.pnl <= 0.0)
+        .map(|t| t.pnl_pct)
+        .collect();
 
     let avg_win_pct = if !wins.is_empty() {
         wins.iter().sum::<f64>() / wins.len() as f64
@@ -494,7 +522,10 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
             if short_period >= long_period || short_period == 0 {
                 return None;
             }
-            Some(Strategy::SmaCrossover { short_period, long_period })
+            Some(Strategy::SmaCrossover {
+                short_period,
+                long_period,
+            })
         }
         Some("rsi") => {
             let period = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(14);
@@ -503,7 +534,11 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
             if period == 0 || oversold >= overbought {
                 return None;
             }
-            Some(Strategy::RsiMeanReversion { period, oversold, overbought })
+            Some(Strategy::RsiMeanReversion {
+                period,
+                oversold,
+                overbought,
+            })
         }
         _ => None,
     }
@@ -512,10 +547,19 @@ pub fn parse_strategy(input: &str) -> Option<Strategy> {
 /// List available strategies with descriptions.
 pub fn available_strategies() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("sma", "SMA Crossover (7/25) — buy on golden cross, sell on death cross"),
+        (
+            "sma",
+            "SMA Crossover (7/25) — buy on golden cross, sell on death cross",
+        ),
         ("sma_10_30", "SMA Crossover (10/30) — slower, fewer trades"),
-        ("rsi", "RSI Mean-Reversion (14, 30/70) — buy oversold, sell overbought"),
-        ("rsi_14_25_75", "RSI Mean-Reversion (14, 25/75) — tighter bands"),
+        (
+            "rsi",
+            "RSI Mean-Reversion (14, 30/70) — buy oversold, sell overbought",
+        ),
+        (
+            "rsi_14_25_75",
+            "RSI Mean-Reversion (14, 25/75) — tighter bands",
+        ),
     ]
 }
 
@@ -524,15 +568,21 @@ mod tests {
     use super::*;
 
     fn trending_up_prices(n: usize) -> Vec<f64> {
-        (0..n).map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0).collect()
+        (0..n)
+            .map(|i| 100.0 + i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0)
+            .collect()
     }
 
     fn trending_down_prices(n: usize) -> Vec<f64> {
-        (0..n).map(|i| 200.0 - i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0).collect()
+        (0..n)
+            .map(|i| 200.0 - i as f64 * 0.5 + (i as f64 * 0.3).sin() * 3.0)
+            .collect()
     }
 
     fn oscillating_prices(n: usize) -> Vec<f64> {
-        (0..n).map(|i| 100.0 + (i as f64 * 0.2).sin() * 20.0).collect()
+        (0..n)
+            .map(|i| 100.0 + (i as f64 * 0.2).sin() * 20.0)
+            .collect()
     }
 
     #[test]
@@ -540,7 +590,10 @@ mod tests {
         let prices = trending_up_prices(100);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );
@@ -554,7 +607,10 @@ mod tests {
         let prices = trending_down_prices(100);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );
@@ -567,12 +623,19 @@ mod tests {
         let prices = oscillating_prices(200);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );
         // Oscillating prices should generate multiple trades
-        assert!(result.total_trades > 0, "Should generate trades on oscillating data, got {}", result.total_trades);
+        assert!(
+            result.total_trades > 0,
+            "Should generate trades on oscillating data, got {}",
+            result.total_trades
+        );
     }
 
     #[test]
@@ -580,7 +643,11 @@ mod tests {
         let prices = oscillating_prices(200);
         let result = run_backtest(
             &prices,
-            &Strategy::RsiMeanReversion { period: 14, oversold: 30.0, overbought: 70.0 },
+            &Strategy::RsiMeanReversion {
+                period: 14,
+                oversold: 30.0,
+                overbought: 70.0,
+            },
             "TEST",
             "90d",
         );
@@ -593,7 +660,10 @@ mod tests {
         let prices = vec![100.0, 101.0, 102.0];
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "1d",
         );
@@ -605,7 +675,10 @@ mod tests {
         let prices = oscillating_prices(200);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "bitcoin",
             "90d",
         );
@@ -619,13 +692,25 @@ mod tests {
     #[test]
     fn test_parse_strategy_sma() {
         let s = parse_strategy("sma").unwrap();
-        assert!(matches!(s, Strategy::SmaCrossover { short_period: 7, long_period: 25 }));
+        assert!(matches!(
+            s,
+            Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25
+            }
+        ));
     }
 
     #[test]
     fn test_parse_strategy_sma_custom() {
         let s = parse_strategy("sma_10_30").unwrap();
-        assert!(matches!(s, Strategy::SmaCrossover { short_period: 10, long_period: 30 }));
+        assert!(matches!(
+            s,
+            Strategy::SmaCrossover {
+                short_period: 10,
+                long_period: 30
+            }
+        ));
     }
 
     #[test]
@@ -649,9 +734,15 @@ mod tests {
     #[test]
     fn test_calculate_sharpe_positive() {
         // All positive returns should give positive Sharpe
-        let returns = vec![0.01, 0.02, 0.015, 0.01, 0.025, 0.01, 0.02, 0.015, 0.01, 0.025];
+        let returns = vec![
+            0.01, 0.02, 0.015, 0.01, 0.025, 0.01, 0.02, 0.015, 0.01, 0.025,
+        ];
         let sharpe = calculate_sharpe(&returns);
-        assert!(sharpe > 0.0, "Sharpe should be positive for positive returns, got {}", sharpe);
+        assert!(
+            sharpe > 0.0,
+            "Sharpe should be positive for positive returns, got {}",
+            sharpe
+        );
     }
 
     #[test]
@@ -660,12 +751,18 @@ mod tests {
         let prices = trending_up_prices(100);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );
         // Buy and hold should be positive in an uptrend
-        assert!(result.buy_hold_return_pct > 0.0, "Buy & hold should be positive in uptrend");
+        assert!(
+            result.buy_hold_return_pct > 0.0,
+            "Buy & hold should be positive in uptrend"
+        );
     }
 
     #[test]
@@ -678,7 +775,10 @@ mod tests {
         }
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );
@@ -691,7 +791,10 @@ mod tests {
         let prices = oscillating_prices(300);
         let result = run_backtest(
             &prices,
-            &Strategy::SmaCrossover { short_period: 7, long_period: 25 },
+            &Strategy::SmaCrossover {
+                short_period: 7,
+                long_period: 25,
+            },
             "TEST",
             "90d",
         );

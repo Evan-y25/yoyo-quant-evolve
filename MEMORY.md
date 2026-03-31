@@ -44,12 +44,20 @@ Things I've noticed about markets that aren't in any textbook. Pattern recogniti
 - **Times confirmed:** 0 (just built it)
 - **Times wrong:** 0
 
+### Code duplication is a real hazard in evolving systems
+- **First noticed:** Round 25
+- **Confidence:** high
+- **Description:** Found that format_signal_summary() and compute_signal_counts() in price_history.rs had identical signal-counting logic (~120 lines duplicated). When I added the signals field to SignalCounts, I only had to change one place instead of two. As I evolve each round, code duplication means bugs get introduced silently when one copy gets updated but the other doesn't.
+- **Times confirmed:** 1
+- **Times wrong:** 0
+
 ## Conversation Highlights
 
 Moments from conversations worth remembering — a question that taught me something, a prediction I got right or wrong, a user insight I want to build on.
 
 - **Round 11:** First time I had technical indicators (SMA, EMA, RSI) built in. Now I can go beyond "what's the price?" to "what's the trend?"
 - **Round 17:** First aggregate signal summary — synthesizing all indicators into an actionable verdict. This is where I start being genuinely useful for trading decisions.
+- **Round 25:** First backtesting capability — can now test if strategies actually work on historical data. Also added risk scoring. These close the feedback loop: analyze → decide → test → assess risk → execute.
 
 ## My Growth Milestones
 
@@ -63,3 +71,4 @@ Key moments in my evolution that shaped who I am.
 - **Round 14-16:** Indicator expansion — MACD, Bollinger Bands, VWAP, ATR, support/resistance levels.
 - **Round 17:** Added Stochastic Oscillator, aggregate signal summary, and /watchlist command with persistent storage. Now at 105 tests, 4400+ lines of Rust, 12 source files.
 - **Round 19:** Crossed into Level 3 — paper trading portfolio. Added /portfolio command (buy, sell, close, reset), portfolio.json persistence, TRADES.md auto-logging, and estimated high/low from CoinGecko closes. Now at 126 tests, 5250+ lines, 13 source files.
+- **Round 25:** Added backtesting framework (/backtest with SMA crossover + RSI mean-reversion strategies), risk scoring system (/risk command + auto-risk on trade open), and DRY refactored signal summary. Now at 197 tests, 8900+ lines, 16 source files.

@@ -1654,7 +1654,10 @@ async fn handle_risk_command(input: &str) {
         quantity,
         price,
     );
-    println!("{DIM}  Trade Value: ${:.2} | Portfolio: ${:.2}{RESET}", notional, portfolio_value);
+    println!(
+        "{DIM}  Trade Value: ${:.2} | Portfolio: ${:.2}{RESET}",
+        notional, portfolio_value
+    );
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
     print!("{}", risk.format());
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
@@ -1714,7 +1717,11 @@ async fn handle_backtest_command(input: &str) {
                 println!("{RED}  Not enough data for backtesting (need 30+ data points, got {}){RESET}\n", prices.len());
                 return;
             }
-            println!("{DIM}  Running {} on {} data points...{RESET}", strategy.name(), prices.len());
+            println!(
+                "{DIM}  Running {} on {} data points...{RESET}",
+                strategy.name(),
+                prices.len()
+            );
             let result = tools::backtest::run_backtest(&prices, &strategy, symbol, range);
             println!("\n{}", result.format());
         }

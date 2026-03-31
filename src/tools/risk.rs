@@ -111,7 +111,7 @@ pub fn assess_trade_risk(
     if let Some(sl) = stop_loss {
         let sl_distance_pct = ((entry_price - sl).abs() / entry_price) * 100.0;
         let sl_score = match sl_distance_pct as u32 {
-            0..=1 => 1,  // Very tight SL
+            0..=1 => 1, // Very tight SL
             2..=3 => 2,
             4..=5 => 3,
             6..=8 => 4,
@@ -215,11 +215,15 @@ pub fn assess_trade_risk(
     let recommendation = match overall {
         1..=3 => "Position sizing looks reasonable. Consider proceeding with your plan.".into(),
         4..=5 => "Risk is moderate. Make sure you have a clear exit plan.".into(),
-        6..=7 => "Risk is elevated. Consider reducing position size or tightening stop-loss.".into(),
-        8..=9 => "High risk trade. Strongly consider reducing size or waiting for better setup."
-            .into(),
-        10 => "Extreme risk. This trade could significantly impact your portfolio. Reconsider."
-            .into(),
+        6..=7 => {
+            "Risk is elevated. Consider reducing position size or tightening stop-loss.".into()
+        }
+        8..=9 => {
+            "High risk trade. Strongly consider reducing size or waiting for better setup.".into()
+        }
+        10 => {
+            "Extreme risk. This trade could significantly impact your portfolio. Reconsider.".into()
+        }
         _ => "Unable to fully assess risk.".into(),
     };
 
@@ -238,13 +242,21 @@ mod tests {
     #[test]
     fn test_small_position_low_risk() {
         let assessment = assess_trade_risk(100_000.0, 5_000.0, 100.0, Some(95.0), None);
-        assert!(assessment.score <= 4, "Small position with SL should be low risk, got {}", assessment.score);
+        assert!(
+            assessment.score <= 4,
+            "Small position with SL should be low risk, got {}",
+            assessment.score
+        );
     }
 
     #[test]
     fn test_large_position_high_risk() {
         let assessment = assess_trade_risk(100_000.0, 80_000.0, 100.0, None, None);
-        assert!(assessment.score >= 7, "Large position without SL should be high risk, got {}", assessment.score);
+        assert!(
+            assessment.score >= 7,
+            "Large position without SL should be high risk, got {}",
+            assessment.score
+        );
     }
 
     #[test]
@@ -275,7 +287,10 @@ mod tests {
         // Uptrending price data
         let prices: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 0.5).collect();
         let assessment = assess_trade_risk(100_000.0, 10_000.0, 125.0, Some(120.0), Some(&prices));
-        assert!(assessment.factors.len() == 3, "Should have 3 factors with indicator data");
+        assert!(
+            assessment.factors.len() == 3,
+            "Should have 3 factors with indicator data"
+        );
         assert!(assessment.score >= 1 && assessment.score <= 10);
     }
 
@@ -300,7 +315,7 @@ mod tests {
     #[test]
     fn test_tight_stop_loss_lower_risk() {
         let tight = assess_trade_risk(100_000.0, 10_000.0, 100.0, Some(99.0), None); // 1% SL
-        let wide = assess_trade_risk(100_000.0, 10_000.0, 100.0, Some(80.0), None);  // 20% SL
+        let wide = assess_trade_risk(100_000.0, 10_000.0, 100.0, Some(80.0), None); // 20% SL
         assert!(
             tight.score <= wide.score,
             "Tight SL should be lower or equal risk: {} vs {}",

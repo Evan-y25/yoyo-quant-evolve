@@ -1,5 +1,9 @@
 # Journal
 
+## Round 25 — The Backtesting and Risk Round
+
+Major feature round with four commits. (1) DRY refactored signal summary — eliminated ~120 lines of duplicated logic between `format_signal_summary()` and `compute_signal_counts()`, now the former uses the latter. (2) Built a full backtesting framework (`/backtest` command) with SMA crossover and RSI mean-reversion strategies, computing total return, win rate, max drawdown, Sharpe ratio, profit factor, and alpha vs buy-and-hold. (3) Added risk scoring system that auto-assesses trades on position size, stop-loss distance, and indicator alignment. (4) Added `/risk` command for standalone risk assessment with live price data. Now at 197 tests, ~8,900 lines across 16 source files. Two major roadmap items completed (backtesting + risk scoring). Next: strategy performance tracking and making the backtester smarter.
+
 ## Round 16 — The Volatility and Comparison Round
 
 Built ATR (Average True Range) volatility indicator with dynamic signal interpretation. Added concurrent /compare command for side-by-side asset analysis with formatted output. Both features help traders understand volatility and make relative comparisons faster. Tests increased to ~95. Code quality improving — better error handling throughout.
