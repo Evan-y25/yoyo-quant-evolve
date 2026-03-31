@@ -1062,6 +1062,12 @@ pub fn all_default_strategies() -> Vec<Strategy> {
             slow: 26,
             signal_period: 9,
         },
+        Strategy::StochasticOscillator {
+            period: 14,
+            signal_period: 3,
+            oversold: 20.0,
+            overbought: 80.0,
+        },
     ]
 }
 
@@ -1514,7 +1520,7 @@ mod tests {
     #[test]
     fn test_all_default_strategies() {
         let strategies = all_default_strategies();
-        assert_eq!(strategies.len(), 6, "Should have 6 default strategies");
+        assert_eq!(strategies.len(), 7, "Should have 7 default strategies (including Stochastic)");
         // Verify all names are non-empty
         for s in &strategies {
             assert!(!s.name().is_empty());
@@ -1528,7 +1534,7 @@ mod tests {
         assert_eq!(result.symbol, "TEST");
         assert_eq!(result.range, "90d");
         assert_eq!(result.data_points, 200);
-        assert_eq!(result.results.len(), 6, "Should run all 6 strategies");
+        assert_eq!(result.results.len(), 7, "Should run all 7 strategies");
     }
 
     #[test]
