@@ -717,6 +717,180 @@ pub fn available_strategies() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+/// Get all default strategies for comparison backtesting.
+pub fn all_default_strategies() -> Vec<Strategy> {
+    vec![
+        Strategy::SmaCrossover {
+            short_period: 7,
+            long_period: 25,
+        },
+        Strategy::SmaCrossover {
+            short_period: 10,
+            long_period: 30,
+        },
+        Strategy::RsiMeanReversion {
+            period: 14,
+            oversold: 30.0,
+            overbought: 70.0,
+        },
+        Strategy::RsiMeanReversion {
+            period: 14,
+            oversold: 25.0,
+            overbought: 75.0,
+        },
+        Strategy::BollingerSqueeze {
+            period: 20,
+            std_dev: 2.0,
+        },
+    ]
+}
+
+/// Result of comparing multiple strategies on the same data.
+pub struct ComparisonResult {
+    pub symbol: String,
+    pub range: String,
+    pub data_points: usize,
+    pub buy_hold_return_pct: f64,
+    pub results: Vec<BacktestResult>,
+}
+
+impl ComparisonResult {
+    /// Format comparison as a ranked table.
+    pub fn format(&self) -> String {
+        let mut output = String::new();
+
+        output.push_str(&format!(
+            "🏆 Strategy Comparison: {} ({})\n",
+            self.symbol, self.range
+        ));
+        output.push_str("═════════════════════════════════════════════════════════════════\n");
+        output.push_str(&format!("  Data Points: {}\n", self.data_points));
+        output.push_str(&format!(
+            "  Buy & Hold:  {}{:.2}%\n",
+            if self.buy_hold_return_pct >= 0.0 {
+                "+"
+            } else {
+                ""
+            },
+            self.buy_hold_return_pct
+        ));
+        output.push_str("─────────────────────────────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  {:<3} {:<28} {:>8} {:>8} {:>7} {:>6} {:>8}\n",
+            "#", "Strategy", "Return", "Alpha", "WinR", "Trades", "MaxDD"
+        ));
+        output.push_str("─────────────────────────────────────────────────────────────────\n");
+
+        // Sort results by total return (descending)
+        let mut sorted_results: Vec<&BacktestResult> = self.results.iter().collect();
+        sorted_results.sort_by(|a, b| {
+            b.total_return_pct
+                .partial_cmp(&a.total_return_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for (rank, result) in sorted_results.iter().enumerate() {
+            let rank_emoji = match rank {
+                0 => "🥇",
+                1 => "🥈",
+                2 => "🥉",
+                _ => "  ",
+            };
+            let alpha = result.total_return_pct - self.buy_hold_return_pct;
+            let beat_bh = if alpha > 0.0 { "🟢" } else { "🔴" };
+
+            output.push_str(&format!(
+                "  {} {:<28} {:>+7.2}% {:>+7.2}% {} {:>5.1}% {:>5} {:>-7.2}%\n",
+                rank_emoji,
+                truncate_str(&result.strategy_name, 28),
+                result.total_return_pct,
+                alpha,
+                beat_bh,
+                result.win_rate,
+                result.total_trades,
+                result.max_drawdown_pct,
+            ));
+        }
+
+        output.push_str("─────────────────────────────────────────────────────────────────\n");
+
+        // Summary insights
+        if let Some(best) = sorted_results.first() {
+            let alpha = best.total_return_pct - self.buy_hold_return_pct;
+            if alpha > 0.0 {
+                output.push_str(&format!(
+                    "  🏆 Best: {} ({}{:.2}% alpha)\n",
+                    best.strategy_name,
+                    if alpha >= 0.0 { "+" } else { "" },
+                    alpha,
+                ));
+            } else {
+                output.push_str("  📉 No strategy beat buy & hold on this data.\n");
+                output.push_str("  💡 Sometimes the best trade is no trade.\n");
+            }
+        }
+
+        // Look for strategies with good risk-adjusted returns
+        let best_sharpe = sorted_results
+            .iter()
+            .filter(|r| r.sharpe_ratio.is_finite() && r.total_trades >= 3)
+            .max_by(|a, b| {
+                a.sharpe_ratio
+                    .partial_cmp(&b.sharpe_ratio)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        if let Some(sr) = best_sharpe {
+            if sr.sharpe_ratio > 0.0 {
+                output.push_str(&format!(
+                    "  📊 Best risk-adjusted: {} (Sharpe: {:.2})\n",
+                    sr.strategy_name, sr.sharpe_ratio,
+                ));
+            }
+        }
+
+        output.push_str("═════════════════════════════════════════════════════════════════\n");
+        output.push_str("  ⚠️  Past performance is not indicative of future results.\n");
+        output.push_str("  Backtest does not account for fees, slippage, or liquidity.\n");
+
+        output
+    }
+}
+
+/// Run all default strategies on the same price data and return a comparison.
+pub fn run_comparison(prices: &[f64], symbol: &str, range: &str) -> ComparisonResult {
+    let strategies = all_default_strategies();
+    let results: Vec<BacktestResult> = strategies
+        .iter()
+        .map(|s| run_backtest(prices, s, symbol, range))
+        .collect();
+
+    let buy_hold_return_pct = if prices.len() >= 2 && prices[0] > 0.0 {
+        ((prices[prices.len() - 1] - prices[0]) / prices[0]) * 100.0
+    } else {
+        0.0
+    };
+
+    ComparisonResult {
+        symbol: symbol.to_string(),
+        range: range.to_string(),
+        data_points: prices.len(),
+        buy_hold_return_pct,
+        results,
+    }
+}
+
+/// Truncate a string to a max length, adding "..." if truncated.
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else if max > 3 {
+        format!("{}...", &s[..max - 3])
+    } else {
+        s[..max].to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1015,5 +1189,71 @@ mod tests {
             "7d",
         );
         assert_eq!(result.total_trades, 0);
+    }
+
+    #[test]
+    fn test_all_default_strategies() {
+        let strategies = all_default_strategies();
+        assert_eq!(strategies.len(), 5, "Should have 5 default strategies");
+        // Verify all names are non-empty
+        for s in &strategies {
+            assert!(!s.name().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_run_comparison_basic() {
+        let prices = oscillating_prices(200);
+        let result = run_comparison(&prices, "TEST", "90d");
+        assert_eq!(result.symbol, "TEST");
+        assert_eq!(result.range, "90d");
+        assert_eq!(result.data_points, 200);
+        assert_eq!(result.results.len(), 5, "Should run all 5 strategies");
+    }
+
+    #[test]
+    fn test_run_comparison_uptrend() {
+        let prices = trending_up_prices(100);
+        let result = run_comparison(&prices, "TEST", "90d");
+        // Buy-and-hold should be positive in an uptrend
+        assert!(
+            result.buy_hold_return_pct > 0.0,
+            "Buy & hold should be positive in uptrend"
+        );
+        // All results should have the same data_points
+        for r in &result.results {
+            assert_eq!(r.data_points, 100);
+        }
+    }
+
+    #[test]
+    fn test_comparison_format() {
+        let prices = oscillating_prices(200);
+        let result = run_comparison(&prices, "bitcoin", "90d");
+        let formatted = result.format();
+        assert!(formatted.contains("Strategy Comparison"));
+        assert!(formatted.contains("bitcoin"));
+        assert!(formatted.contains("Buy & Hold"));
+        assert!(formatted.contains("Return"));
+        assert!(formatted.contains("Alpha"));
+        assert!(formatted.contains("🥇"));
+        assert!(formatted.contains("not indicative"));
+    }
+
+    #[test]
+    fn test_comparison_insufficient_data() {
+        let prices = vec![100.0; 10];
+        let result = run_comparison(&prices, "TEST", "7d");
+        // With very little data, most strategies won't generate trades
+        let total_trades: usize = result.results.iter().map(|r| r.total_trades).sum();
+        assert_eq!(total_trades, 0, "Should have no trades on constant data");
+    }
+
+    #[test]
+    fn test_truncate_str() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello world foo", 10), "hello w...");
+        assert_eq!(truncate_str("hello", 5), "hello");
+        assert_eq!(truncate_str("hi", 2), "hi");
     }
 }

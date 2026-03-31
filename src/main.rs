@@ -1675,6 +1675,7 @@ async fn handle_risk_command(input: &str) {
 ///   /bt bitcoin sma 90d
 ///   /bt AAPL rsi 1y
 ///   /bt bitcoin sma_10_30 90d
+///   /bt bitcoin compare 90d    — compare ALL strategies
 async fn handle_backtest_command(input: &str) {
     let args = input
         .trim_start_matches("/backtest")
@@ -1689,11 +1690,13 @@ async fn handle_backtest_command(input: &str) {
         println!("{DIM}  Example: /backtest bitcoin sma 90d{RESET}");
         println!("{DIM}  Example: /bt AAPL rsi 1y{RESET}");
         println!("{DIM}  Example: /bt bitcoin sma_10_30 90d{RESET}");
+        println!("{DIM}  Example: /bt bitcoin compare 90d    — compare ALL strategies{RESET}");
         println!();
         println!("{DIM}  Available strategies:{RESET}");
         for (name, desc) in tools::backtest::available_strategies() {
             println!("    {BOLD}{name}{RESET}  — {desc}");
         }
+        println!("    {BOLD}compare{RESET}  — Run ALL strategies and show ranked comparison");
         println!();
         println!("{DIM}  Ranges: 7d, 30d, 90d, 1y (default: 90d){RESET}");
         println!("{DIM}  Default strategy: sma (SMA Crossover 7/25){RESET}\n");
@@ -1704,11 +1707,35 @@ async fn handle_backtest_command(input: &str) {
     let strategy_str = parts.get(1).copied().unwrap_or("sma");
     let range = parts.get(2).copied().unwrap_or("90d");
 
+    // Handle "compare" mode — run ALL strategies
+    if strategy_str == "compare" || strategy_str == "cmp" || strategy_str == "all" {
+        println!("{DIM}  Fetching {symbol} history ({range}) for strategy comparison...{RESET}");
+
+        match fetch_price_series(symbol, range).await {
+            Ok(prices) => {
+                if prices.len() < 30 {
+                    println!("{RED}  Not enough data for backtesting (need 30+ data points, got {}){RESET}\n", prices.len());
+                    return;
+                }
+                println!(
+                    "{DIM}  Running 5 strategies on {} data points...{RESET}",
+                    prices.len()
+                );
+                let result = tools::backtest::run_comparison(&prices, symbol, range);
+                println!("\n{}", result.format());
+            }
+            Err(e) => {
+                println!("{RED}  Error fetching data: {e}{RESET}\n");
+            }
+        }
+        return;
+    }
+
     let strategy = match tools::backtest::parse_strategy(strategy_str) {
         Some(s) => s,
         None => {
             println!("{RED}  Unknown strategy: '{strategy_str}'{RESET}");
-            println!("{DIM}  Available: sma, sma_10_30, rsi, rsi_14_25_75, bb{RESET}\n");
+            println!("{DIM}  Available: sma, sma_10_30, rsi, rsi_14_25_75, bb, compare{RESET}\n");
             return;
         }
     };
@@ -1774,6 +1801,7 @@ fn print_help() {
     println!("  {BOLD}/alert rm{RESET} <id>        Remove an alert");
     println!("  {BOLD}/alert clear{RESET}          Clear triggered alerts");
     println!("  {BOLD}/backtest{RESET} <sym> [strat] [range]  Backtest a strategy (e.g. /bt bitcoin sma 90d)");
+    println!("  {BOLD}/backtest{RESET} <sym> compare [range]  Compare ALL strategies ranked (e.g. /bt bitcoin compare 1y)");
     println!("  {BOLD}/risk{RESET} <sym> <qty> [price] [sl]  Risk assessment for a proposed trade");
     println!("  {BOLD}/clear{RESET}               Clear conversation history");
     println!("  {BOLD}/model{RESET} <name>        Switch to a different model");
