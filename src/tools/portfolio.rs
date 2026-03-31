@@ -340,14 +340,15 @@ impl Portfolio {
         &self,
         price_map: &std::collections::HashMap<String, f64>,
     ) -> String {
+        use super::format::{format_currency, format_currency_unsigned};
         let mut output = String::new();
         output.push_str("💼 Paper Trading Portfolio\n");
         output.push_str("─────────────────────────────────────────\n");
         output.push_str(&format!(
-            "  Starting Balance: ${:.2}\n",
-            self.starting_balance
+            "  Starting Balance: {}\n",
+            format_currency_unsigned(self.starting_balance)
         ));
-        output.push_str(&format!("  Cash Available:   ${:.2}\n", self.cash));
+        output.push_str(&format!("  Cash Available:   {}\n", format_currency_unsigned(self.cash)));
 
         let open = self.open_positions();
         let closed = self.closed_positions();
@@ -367,28 +368,25 @@ impl Portfolio {
         output.push_str(&format!("  Open Positions:   {}\n", open.len()));
         output.push_str(&format!("  Closed Trades:    {}\n", closed.len()));
         output.push_str(&format!(
-            "  Realized P&L:     {}{:.2}\n",
-            if realized >= 0.0 { "+$" } else { "-$" },
-            realized.abs()
+            "  Realized P&L:     {}\n",
+            format_currency(realized)
         ));
         if !open.is_empty() && !price_map.is_empty() {
             output.push_str(&format!(
-                "  Unrealized P&L:   {}{:.2}\n",
-                if total_unrealized >= 0.0 { "+$" } else { "-$" },
-                total_unrealized.abs()
+                "  Unrealized P&L:   {}\n",
+                format_currency(total_unrealized)
             ));
             let total_pnl = realized + total_unrealized;
             let total_value = self.cash + total_position_value;
             let total_return =
                 ((total_value - self.starting_balance) / self.starting_balance) * 100.0;
             output.push_str(&format!(
-                "  Total P&L:        {}{:.2} ({}{:.2}%)\n",
-                if total_pnl >= 0.0 { "+$" } else { "-$" },
-                total_pnl.abs(),
+                "  Total P&L:        {} ({}{:.2}%)\n",
+                format_currency(total_pnl),
                 if total_return >= 0.0 { "+" } else { "" },
                 total_return,
             ));
-            output.push_str(&format!("  Portfolio Value:  ${:.2}\n", total_value));
+            output.push_str(&format!("  Portfolio Value:  {}\n", format_currency_unsigned(total_value)));
         }
 
         if let Some(wr) = self.win_rate() {
@@ -405,11 +403,10 @@ impl Portfolio {
                     let pnl_pct = trade.pnl_pct(current_price);
                     let emoji = if upnl >= 0.0 { "🟢" } else { "🔴" };
                     format!(
-                        " → ${:.2} {} {}{:.2} ({}{:.2}%)",
-                        current_price,
+                        " → {} {} {} ({}{:.2}%)",
+                        format_currency_unsigned(current_price),
                         emoji,
-                        if upnl >= 0.0 { "+$" } else { "-$" },
-                        upnl.abs(),
+                        format_currency(upnl),
                         if pnl_pct >= 0.0 { "+" } else { "" },
                         pnl_pct,
                     )
@@ -418,21 +415,21 @@ impl Portfolio {
                 };
 
                 output.push_str(&format!(
-                    "    #{} {} {} x{:.4} @ ${:.2}{}\n",
+                    "    #{} {} {} x{:.4} @ {}{}\n",
                     trade.id,
                     trade.side.to_uppercase(),
                     trade.symbol,
                     trade.quantity,
-                    trade.entry_price,
+                    format_currency_unsigned(trade.entry_price),
                     pnl_info,
                 ));
                 // Show SL/TP if set
                 let mut levels = Vec::new();
                 if let Some(sl) = trade.stop_loss {
-                    levels.push(format!("SL: ${:.2}", sl));
+                    levels.push(format!("SL: {}", format_currency_unsigned(sl)));
                 }
                 if let Some(tp) = trade.take_profit {
-                    levels.push(format!("TP: ${:.2}", tp));
+                    levels.push(format!("TP: {}", format_currency_unsigned(tp)));
                 }
                 if !levels.is_empty() {
                     output.push_str(&format!("        🎯 {}\n", levels.join(" | ")));
@@ -456,16 +453,15 @@ impl Portfolio {
                 let pnl = trade.realized_pnl.unwrap_or(0.0);
                 let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
                 output.push_str(&format!(
-                    "    #{} {} {} x{:.4} @ ${:.2} → ${:.2} {} {}{:.2}\n",
+                    "    #{} {} {} x{:.4} @ {} → {} {} {}\n",
                     trade.id,
                     trade.side.to_uppercase(),
                     trade.symbol,
                     trade.quantity,
-                    trade.entry_price,
-                    trade.exit_price.unwrap_or(0.0),
+                    format_currency_unsigned(trade.entry_price),
+                    format_currency_unsigned(trade.exit_price.unwrap_or(0.0)),
                     pnl_emoji,
-                    if pnl >= 0.0 { "+$" } else { "-$" },
-                    pnl.abs(),
+                    format_currency(pnl),
                 ));
             }
         }
@@ -478,14 +474,15 @@ impl Portfolio {
 
     /// Get portfolio summary as formatted text.
     pub fn summary(&self) -> String {
+        use super::format::{format_currency, format_currency_unsigned};
         let mut output = String::new();
         output.push_str("💼 Paper Trading Portfolio\n");
         output.push_str("─────────────────────────────────────────\n");
         output.push_str(&format!(
-            "  Starting Balance: ${:.2}\n",
-            self.starting_balance
+            "  Starting Balance: {}\n",
+            format_currency_unsigned(self.starting_balance)
         ));
-        output.push_str(&format!("  Cash Available:   ${:.2}\n", self.cash));
+        output.push_str(&format!("  Cash Available:   {}\n", format_currency_unsigned(self.cash)));
 
         let open = self.open_positions();
         let closed = self.closed_positions();
@@ -494,9 +491,8 @@ impl Portfolio {
         output.push_str(&format!("  Open Positions:   {}\n", open.len()));
         output.push_str(&format!("  Closed Trades:    {}\n", closed.len()));
         output.push_str(&format!(
-            "  Realized P&L:     {}{:.2}\n",
-            if realized >= 0.0 { "+$" } else { "-$" },
-            realized.abs()
+            "  Realized P&L:     {}\n",
+            format_currency(realized)
         ));
 
         if let Some(wr) = self.win_rate() {
@@ -509,21 +505,21 @@ impl Portfolio {
             output.push_str("  📈 Open Positions:\n");
             for trade in &open {
                 output.push_str(&format!(
-                    "    #{} {} {} x{:.4} @ ${:.2} ({})\n",
+                    "    #{} {} {} x{:.4} @ {} ({})\n",
                     trade.id,
                     trade.side.to_uppercase(),
                     trade.symbol,
                     trade.quantity,
-                    trade.entry_price,
+                    format_currency_unsigned(trade.entry_price),
                     trade.entry_time,
                 ));
                 // Show SL/TP if set
                 let mut levels = Vec::new();
                 if let Some(sl) = trade.stop_loss {
-                    levels.push(format!("SL: ${:.2}", sl));
+                    levels.push(format!("SL: {}", format_currency_unsigned(sl)));
                 }
                 if let Some(tp) = trade.take_profit {
-                    levels.push(format!("TP: ${:.2}", tp));
+                    levels.push(format!("TP: {}", format_currency_unsigned(tp)));
                 }
                 if !levels.is_empty() {
                     output.push_str(&format!("        🎯 {}\n", levels.join(" | ")));
@@ -547,16 +543,15 @@ impl Portfolio {
                 let pnl = trade.realized_pnl.unwrap_or(0.0);
                 let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
                 output.push_str(&format!(
-                    "    #{} {} {} x{:.4} @ ${:.2} → ${:.2} {} {}{:.2}\n",
+                    "    #{} {} {} x{:.4} @ {} → {} {} {}\n",
                     trade.id,
                     trade.side.to_uppercase(),
                     trade.symbol,
                     trade.quantity,
-                    trade.entry_price,
-                    trade.exit_price.unwrap_or(0.0),
+                    format_currency_unsigned(trade.entry_price),
+                    format_currency_unsigned(trade.exit_price.unwrap_or(0.0)),
                     pnl_emoji,
-                    if pnl >= 0.0 { "+$" } else { "-$" },
-                    pnl.abs(),
+                    format_currency(pnl),
                 ));
             }
         }
@@ -570,6 +565,7 @@ impl Portfolio {
     /// Generate a full trade history report showing all closed trades with stats.
     /// Optional `limit` to show only the most recent N trades (0 = show all).
     pub fn history_report(&self, limit: usize) -> String {
+        use super::format::{format_currency, format_currency_unsigned};
         let mut output = String::new();
         let closed = self.closed_positions();
         let open = self.open_positions();
@@ -646,9 +642,8 @@ impl Portfolio {
             };
 
             output.push_str(&format!(
-                "  Realized P&L:   {}{:.2}\n",
-                if realized >= 0.0 { "+$" } else { "-$" },
-                realized.abs()
+                "  Realized P&L:   {}\n",
+                format_currency(realized)
             ));
             if let Some(wr) = self.win_rate() {
                 output.push_str(&format!("  Win Rate:       {:.1}%\n", wr));
@@ -659,8 +654,8 @@ impl Portfolio {
                 losses.len(),
                 breakeven.len(),
             ));
-            output.push_str(&format!("  Avg Win:        +${:.2}\n", avg_win));
-            output.push_str(&format!("  Avg Loss:       -${:.2}\n", avg_loss.abs()));
+            output.push_str(&format!("  Avg Win:        {}\n", format_currency(avg_win)));
+            output.push_str(&format!("  Avg Loss:       {}\n", format_currency(avg_loss)));
             if profit_factor.is_finite() {
                 output.push_str(&format!("  Profit Factor:  {:.2}\n", profit_factor));
             }
@@ -668,21 +663,21 @@ impl Portfolio {
             if let Some(best) = best_trade {
                 let pnl = best.realized_pnl.unwrap_or(0.0);
                 output.push_str(&format!(
-                    "  Best Trade:     #{} {} {} +${:.2}\n",
+                    "  Best Trade:     #{} {} {} {}\n",
                     best.id,
                     best.side.to_uppercase(),
                     best.symbol,
-                    pnl,
+                    format_currency(pnl),
                 ));
             }
             if let Some(worst) = worst_trade {
                 let pnl = worst.realized_pnl.unwrap_or(0.0);
                 output.push_str(&format!(
-                    "  Worst Trade:    #{} {} {} -${:.2}\n",
+                    "  Worst Trade:    #{} {} {} {}\n",
                     worst.id,
                     worst.side.to_uppercase(),
                     worst.symbol,
-                    pnl.abs(),
+                    format_currency(pnl),
                 ));
             }
         }
@@ -712,27 +707,22 @@ impl Portfolio {
                 } else {
                     let pnl = trade.realized_pnl.unwrap_or(0.0);
                     let emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
-                    format!(
-                        "{} {}{:.2}",
-                        emoji,
-                        if pnl >= 0.0 { "+$" } else { "-$" },
-                        pnl.abs()
-                    )
+                    format!("{} {}", emoji, format_currency(pnl))
                 };
 
                 let exit_info = if let Some(exit) = trade.exit_price {
-                    format!(" → ${:.2}", exit)
+                    format!(" → {}", format_currency_unsigned(exit))
                 } else {
                     String::new()
                 };
 
                 output.push_str(&format!(
-                    "  #{:<3} {} {:<10} x{:.4} @ ${:.2}{} {}\n",
+                    "  #{:<3} {} {:<10} x{:.4} @ {}{} {}\n",
                     trade.id,
                     trade.side.to_uppercase(),
                     trade.symbol,
                     trade.quantity,
-                    trade.entry_price,
+                    format_currency_unsigned(trade.entry_price),
                     exit_info,
                     status,
                 ));
@@ -973,7 +963,7 @@ mod tests {
         let p = Portfolio::new();
         let summary = p.summary();
         assert!(summary.contains("Paper Trading Portfolio"));
-        assert!(summary.contains("100000"));
+        assert!(summary.contains("$100,000"));
     }
 
     #[test]
@@ -1052,7 +1042,7 @@ mod tests {
         // BTC unrealized: 0.5 * (90000-80000) = 5000
         // AAPL unrealized: 10 * (210-200) = 100
         // Total unrealized: 5100
-        assert!(summary.contains("+$5,100") || summary.contains("+$5100"));
+        assert!(summary.contains("+$5,100.00"), "Summary should contain formatted P&L, got: {}", summary);
     }
 
     #[test]
@@ -1076,7 +1066,7 @@ mod tests {
 
         let summary = p.summary_with_prices(&prices);
         // Should show negative unrealized P&L
-        assert!(summary.contains("-$5,000") || summary.contains("-$5000"));
+        assert!(summary.contains("-$5,000.00"), "Summary should contain formatted loss, got: {}", summary);
     }
 
     #[test]

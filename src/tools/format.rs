@@ -21,8 +21,30 @@ pub fn format_price(price: f64) -> String {
     }
 }
 
+/// Format a currency value with comma separators and sign.
+/// Always shows 2 decimal places. Handles negative values.
+/// Examples: format_currency(5100.0) → "+$5,100.00", format_currency(-200.0) → "-$200.00"
+pub fn format_currency(value: f64) -> String {
+    let abs_val = value.abs();
+    let sign = if value >= 0.0 { "+" } else { "-" };
+    let integer_part = abs_val as u64;
+    let decimal_part = format!("{:.2}", abs_val.fract());
+    let decimal_str = &decimal_part[1..]; // ".XX"
+    format!("{}${}{}", sign, format_with_commas(integer_part), decimal_str)
+}
+
+/// Format a currency value without sign prefix.
+/// Examples: format_currency_unsigned(5100.0) → "$5,100.00"
+pub fn format_currency_unsigned(value: f64) -> String {
+    let abs_val = value.abs();
+    let integer_part = abs_val as u64;
+    let decimal_part = format!("{:.2}", abs_val.fract());
+    let decimal_str = &decimal_part[1..]; // ".XX"
+    format!("${}{}", format_with_commas(integer_part), decimal_str)
+}
+
 /// Format an integer with comma separators (e.g., 87432 → "87,432").
-fn format_with_commas(n: u64) -> String {
+pub fn format_with_commas(n: u64) -> String {
     let s = n.to_string();
     let bytes: Vec<u8> = s.bytes().collect();
     let mut result = String::new();
@@ -172,6 +194,25 @@ mod tests {
     #[test]
     fn test_format_price_millions() {
         assert_eq!(format_price(1234567.89), "$1,234,567.89");
+    }
+
+    #[test]
+    fn test_format_currency_positive() {
+        assert_eq!(format_currency(5100.0), "+$5,100.00");
+        assert_eq!(format_currency(200.50), "+$200.50");
+        assert_eq!(format_currency(0.0), "+$0.00");
+    }
+
+    #[test]
+    fn test_format_currency_negative() {
+        assert_eq!(format_currency(-5100.0), "-$5,100.00");
+        assert_eq!(format_currency(-200.50), "-$200.50");
+    }
+
+    #[test]
+    fn test_format_currency_unsigned() {
+        assert_eq!(format_currency_unsigned(5100.0), "$5,100.00");
+        assert_eq!(format_currency_unsigned(100000.0), "$100,000.00");
     }
 
     #[test]
