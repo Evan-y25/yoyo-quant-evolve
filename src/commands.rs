@@ -668,13 +668,19 @@ pub async fn handle_portfolio_command(input: &str) {
                         }
                     };
                     // Just show this one trade
-                    println!("{DIM}  Fetching current price for {}...{RESET}", trade.symbol);
+                    println!(
+                        "{DIM}  Fetching current price for {}...{RESET}",
+                        trade.symbol
+                    );
                     match tools::fetch_live_price(&trade.symbol).await {
                         Ok((current_price, name)) => {
                             print_trade_followup(trade, current_price, &name);
                         }
                         Err(e) => {
-                            println!("{RED}  Error fetching price for {}: {e}{RESET}\n", trade.symbol);
+                            println!(
+                                "{RED}  Error fetching price for {}: {e}{RESET}\n",
+                                trade.symbol
+                            );
                         }
                     }
                     return;
@@ -724,43 +730,39 @@ pub async fn handle_portfolio_command(input: &str) {
             for trade in &recent {
                 if let Some((current_price, name)) = price_map.get(&trade.symbol) {
                     let exit_price = trade.exit_price.unwrap_or(trade.entry_price);
-                    let since_exit_pct = if exit_price > 0.0 {
-                        ((current_price - exit_price) / exit_price) * 100.0
-                    } else {
-                        0.0
-                    };
-                    let since_exit_value = (current_price - exit_price) * trade.quantity;
+                    let (since_exit_pct, _hypo, diff, verdict) =
+                        tools::portfolio::compute_trade_followup(trade, *current_price);
 
                     let pnl = trade.realized_pnl.unwrap_or(0.0);
                     let pnl_emoji = if pnl >= 0.0 { "🟢" } else { "🔴" };
 
                     // Was the exit good or bad in hindsight?
-                    let (hindsight_emoji, hindsight_label) = if trade.side == "buy" {
-                        // Buy trade: if price went up after exit, we missed gains
-                        if since_exit_pct > 2.0 {
+                    let (hindsight_emoji, hindsight_label) = match verdict {
+                        v if v.starts_with("exited_early") || v.starts_with("covered_early") => {
                             missed_count += 1;
-                            total_missed += since_exit_value;
-                            ("😬", "Exited too early — missed gains")
-                        } else if since_exit_pct < -2.0 {
-                            dodged_count += 1;
-                            total_dodged += since_exit_value.abs();
-                            ("😎", "Good exit — dodged a drop")
-                        } else {
-                            ("😐", "Roughly flat since exit")
+                            total_missed += diff.abs();
+                            (
+                                "😬",
+                                if v.contains("covered") {
+                                    "Covered too early — missed more downside"
+                                } else {
+                                    "Exited too early — missed gains"
+                                },
+                            )
                         }
-                    } else {
-                        // Short trade: if price went down after exit, we missed gains
-                        if since_exit_pct < -2.0 {
-                            missed_count += 1;
-                            total_missed += since_exit_value.abs();
-                            ("😬", "Covered too early — missed more downside")
-                        } else if since_exit_pct > 2.0 {
+                        v if v.starts_with("good_exit") || v.starts_with("good_cover") => {
                             dodged_count += 1;
-                            total_dodged += since_exit_value;
-                            ("😎", "Good cover — price bounced")
-                        } else {
-                            ("😐", "Roughly flat since exit")
+                            total_dodged += diff.abs();
+                            (
+                                "😎",
+                                if v.contains("cover") {
+                                    "Good cover — price bounced"
+                                } else {
+                                    "Good exit — dodged a drop"
+                                },
+                            )
                         }
+                        _ => ("😐", "Roughly flat since exit"),
                     };
 
                     println!(
@@ -790,7 +792,9 @@ pub async fn handle_portfolio_command(input: &str) {
                 println!("  💡 Pattern: Your exit timing is solid. Keep it up!");
             }
             println!("{DIM}  ═════════════════════════════════════════════════════{RESET}");
-            println!("{DIM}  ⚠️  Hindsight is 20/20. Past exits don't predict future ones.{RESET}\n");
+            println!(
+                "{DIM}  ⚠️  Hindsight is 20/20. Past exits don't predict future ones.{RESET}\n"
+            );
         }
         Some("reset") => {
             let portfolio = tools::portfolio::Portfolio::new();
@@ -910,9 +914,21 @@ fn print_trade_followup(trade: &tools::portfolio::PaperTrade, current_price: f64
     println!();
     println!("{BOLD}{CYAN}  🔍 Trade #{} Follow-Up{RESET}", trade.id);
     println!("{DIM}  ─────────────────────────────────────────{RESET}");
-    println!("  {} {} {} x{:.4}", trade.side.to_uppercase(), name, trade.symbol, trade.quantity);
-    println!("  Entry:  ${:.2}  ({})", trade.entry_price, trade.entry_time);
-    println!("  Exit:   ${exit_price:.2}  ({})", trade.exit_time.as_deref().unwrap_or("?"));
+    println!(
+        "  {} {} {} x{:.4}",
+        trade.side.to_uppercase(),
+        name,
+        trade.symbol,
+        trade.quantity
+    );
+    println!(
+        "  Entry:  ${:.2}  ({})",
+        trade.entry_price, trade.entry_time
+    );
+    println!(
+        "  Exit:   ${exit_price:.2}  ({})",
+        trade.exit_time.as_deref().unwrap_or("?")
+    );
     println!("  Now:    ${current_price:.2}");
     println!("  Realized P&L: {pnl_emoji} ${pnl:.2}");
     println!(
@@ -926,7 +942,9 @@ fn print_trade_followup(trade: &tools::portfolio::PaperTrade, current_price: f64
 
     // Verdict
     let verdict_display = match verdict {
-        "exited_early_significant" => "😬 Exited significantly early — left substantial gains on the table",
+        "exited_early_significant" => {
+            "😬 Exited significantly early — left substantial gains on the table"
+        }
         "exited_early_minor" => "😬 Exited a bit early — some missed upside",
         "good_exit_significant" => "😎 Excellent exit — dodged a major drop",
         "good_exit_minor" => "😎 Good exit — avoided further downside",
