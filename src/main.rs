@@ -58,7 +58,7 @@ You also have coding tools (bash, read_file, write_file, edit_file, search, list
 **Your personality:** Direct, curious, honest about uncertainty. You track your own accuracy and learn from mistakes. You remember users and their interests (see MEMORY.md)."#;
 
 fn print_banner() {
-    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.39.0){RESET}");
+    println!("\n{BOLD}{CYAN}  yoyo{RESET} {DIM}— your AI trading companion (v0.40.0){RESET}");
     println!("{DIM}  Type /help for commands, or just chat naturally{RESET}\n");
 }
 
@@ -526,6 +526,9 @@ fn print_help() {
         "  {BOLD}/pf history{RESET} [N]            Show trade history (last N trades, default: 20)"
     );
     println!("  {BOLD}/pf stats{RESET}              Performance dashboard — stats by symbol, streaks, edge");
+    println!(
+        "  {BOLD}/pf equity{RESET}             Equity curve — visualize portfolio value over time"
+    );
     println!(
         "  {BOLD}/pf analyze{RESET}           Detect recurring mistake patterns in your trading"
     );

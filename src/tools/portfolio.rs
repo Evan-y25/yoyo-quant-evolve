@@ -1069,6 +1069,249 @@ impl Portfolio {
         output.push_str("─────────────────────────────────────────\n");
         output
     }
+
+    /// Generate an equity curve showing portfolio value at each trade event.
+    ///
+    /// Returns a list of (label, value) points that can be rendered as an ASCII chart.
+    /// Each point represents either a trade open or close event.
+    pub fn equity_curve(&self) -> Vec<(String, f64)> {
+
+        // Collect all trade events sorted chronologically
+        let mut events: Vec<(String, u32, &str)> = Vec::new(); // (timestamp, trade_id, "open"/"close")
+
+        for trade in &self.trades {
+            events.push((trade.entry_time.clone(), trade.id, "open"));
+            if let Some(ref exit_time) = trade.exit_time {
+                events.push((exit_time.clone(), trade.id, "close"));
+            }
+        }
+        events.sort_by(|a, b| a.0.cmp(&b.0));
+
+        if events.is_empty() {
+            return vec![("Start".to_string(), self.starting_balance)];
+        }
+
+        // Replay events to compute equity at each point
+        let mut curve: Vec<(String, f64)> = Vec::new();
+        curve.push(("Start".to_string(), self.starting_balance));
+
+        let mut cash = self.starting_balance;
+        let mut open_positions: std::collections::HashMap<u32, (f64, f64, String)> =
+            std::collections::HashMap::new(); // id -> (qty, entry_price, side)
+
+        for (timestamp, trade_id, event_type) in &events {
+            if let Some(trade) = self.trades.iter().find(|t| t.id == *trade_id) {
+                match *event_type {
+                    "open" => {
+                        let cost = trade.quantity * trade.entry_price;
+                        if trade.side == "buy" {
+                            cash -= cost;
+                        }
+                        open_positions.insert(
+                            trade.id,
+                            (trade.quantity, trade.entry_price, trade.side.clone()),
+                        );
+                    }
+                    "close" => {
+                        let exit_price = trade.exit_price.unwrap_or(trade.entry_price);
+                        if trade.side == "buy" {
+                            cash += trade.quantity * exit_price;
+                        } else {
+                            let pnl = trade.quantity * (trade.entry_price - exit_price);
+                            cash += pnl;
+                        }
+                        open_positions.remove(&trade.id);
+                    }
+                    _ => {}
+                }
+
+                // Compute total portfolio value (cash + open position values at entry prices)
+                // We use entry prices since we don't have historical market prices
+                let open_value: f64 = open_positions
+                    .values()
+                    .map(|(qty, price, _)| qty * price)
+                    .sum();
+                let total = cash + open_value;
+
+                // Label: use short date from timestamp
+                let label = if timestamp.len() >= 10 {
+                    timestamp[5..10].to_string() // "MM-DD"
+                } else {
+                    timestamp.clone()
+                };
+                curve.push((label, total));
+            }
+        }
+
+        curve
+    }
+
+    /// Render the equity curve as an ASCII chart for terminal display.
+    pub fn equity_chart(&self) -> String {
+        use super::format::format_currency_unsigned;
+
+        let curve = self.equity_curve();
+        let mut output = String::new();
+
+        output.push_str("📈 Equity Curve\n");
+        output.push_str("═════════════════════════════════════════\n");
+
+        if curve.len() <= 1 {
+            output.push_str("  No trade events to chart yet.\n");
+            output.push_str("  Start trading with: /pf buy <symbol> <qty>\n");
+            output.push_str("═════════════════════════════════════════\n");
+            return output;
+        }
+
+        let values: Vec<f64> = curve.iter().map(|(_, v)| *v).collect();
+        let min_val = values
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        let max_val = values
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let current = *values.last().unwrap_or(&self.starting_balance);
+        let total_return = ((current - self.starting_balance) / self.starting_balance) * 100.0;
+
+        output.push_str(&format!(
+            "  Start: {}  →  Now: {} ({}{:.2}%)\n",
+            format_currency_unsigned(self.starting_balance),
+            format_currency_unsigned(current),
+            if total_return >= 0.0 { "+" } else { "" },
+            total_return,
+        ));
+        output.push_str(&format!(
+            "  Peak: {}  |  Trough: {}\n",
+            format_currency_unsigned(max_val),
+            format_currency_unsigned(min_val),
+        ));
+
+        // Max drawdown
+        let mut peak = f64::NEG_INFINITY;
+        let mut max_dd = 0.0f64;
+        for &v in &values {
+            if v > peak {
+                peak = v;
+            }
+            let dd = (peak - v) / peak * 100.0;
+            if dd > max_dd {
+                max_dd = dd;
+            }
+        }
+        output.push_str(&format!("  Max Drawdown: {:.2}%\n", max_dd));
+
+        output.push_str("─────────────────────────────────────────\n");
+
+        // Render ASCII chart (40 chars wide, 12 rows tall)
+        let chart_width = 50;
+        let chart_height = 12;
+        let range = max_val - min_val;
+
+        if range < 0.01 {
+            // Flat line
+            output.push_str("  (Portfolio value is flat — chart not meaningful)\n");
+        } else {
+            // Resample data to fit chart width
+            let data_len = values.len();
+            let step = if data_len > chart_width {
+                data_len as f64 / chart_width as f64
+            } else {
+                1.0
+            };
+            let resampled: Vec<f64> = (0..chart_width.min(data_len))
+                .map(|i| {
+                    let idx = (i as f64 * step) as usize;
+                    values[idx.min(data_len - 1)]
+                })
+                .collect();
+
+            // Render chart rows (top to bottom)
+            for row in (0..chart_height).rev() {
+                let threshold = min_val + (range * row as f64 / (chart_height - 1) as f64);
+
+                // Y-axis label (only on first, middle, and last rows)
+                let label = if row == chart_height - 1 {
+                    format!("{:>10}", format_currency_unsigned(max_val))
+                } else if row == 0 {
+                    format!("{:>10}", format_currency_unsigned(min_val))
+                } else if row == chart_height / 2 {
+                    let mid = (min_val + max_val) / 2.0;
+                    format!("{:>10}", format_currency_unsigned(mid))
+                } else {
+                    "          ".to_string()
+                };
+
+                let mut line = format!("  {} │", label);
+                for &val in &resampled {
+                    if val >= threshold {
+                        // Color based on whether above or below starting balance
+                        if val >= self.starting_balance {
+                            line.push('█');
+                        } else {
+                            line.push('▓');
+                        }
+                    } else {
+                        line.push(' ');
+                    }
+                }
+                output.push_str(&line);
+                output.push('\n');
+            }
+
+            // X-axis
+            output.push_str(&format!("  {} └{}\n", "          ", "─".repeat(resampled.len())));
+
+            // X-axis labels (start, middle, end)
+            let start_label = &curve.first().map(|(l, _)| l.as_str()).unwrap_or("");
+            let end_label = &curve.last().map(|(l, _)| l.as_str()).unwrap_or("");
+            let padding = if resampled.len() > 10 {
+                resampled.len() - start_label.len() - end_label.len()
+            } else {
+                2
+            };
+            output.push_str(&format!(
+                "  {}  {}{}{}\n",
+                "          ",
+                start_label,
+                " ".repeat(padding.max(1)),
+                end_label,
+            ));
+        }
+
+        // Trade event summary
+        let trade_count = self.trades.len();
+        let closed_count = self.closed_positions().len();
+        let open_count = self.open_positions().len();
+
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str(&format!(
+            "  {} trade events ({} closed, {} open)\n",
+            trade_count, closed_count, open_count,
+        ));
+
+        // Show sparkline version too for compact view
+        let sparkline_chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        let sparkline: String = values
+            .iter()
+            .map(|&v| {
+                let normalized = if range > 0.0 {
+                    ((v - min_val) / range * 7.0) as usize
+                } else {
+                    4
+                };
+                sparkline_chars[normalized.min(7)]
+            })
+            .collect();
+        output.push_str(&format!("  Sparkline: {}\n", sparkline));
+
+        output.push_str("═════════════════════════════════════════\n");
+        output.push_str("  ⚠️  Paper trading only — no real money at risk.\n");
+
+        output
+    }
 }
 
 /// Get current timestamp as ISO 8601 string.
@@ -1932,5 +2175,71 @@ mod tests {
         // Price barely moved — neutral
         let (_since_exit_pct, _hypo_pnl, _diff, verdict) = compute_trade_followup(&trade, 2110.0);
         assert_eq!(verdict, "neutral"); // < 2% change
+    }
+
+    #[test]
+    fn test_equity_curve_empty() {
+        let p = Portfolio::new();
+        let curve = p.equity_curve();
+        assert_eq!(curve.len(), 1);
+        assert_eq!(curve[0].1, 100_000.0);
+    }
+
+    #[test]
+    fn test_equity_curve_single_trade() {
+        let mut p = Portfolio::new();
+        let id = p.open_trade("AAPL", "buy", 10.0, 200.0, "Test", 5).unwrap();
+        let curve = p.equity_curve();
+        // Should have: Start + open event = 2 points
+        assert_eq!(curve.len(), 2);
+        assert_eq!(curve[0].1, 100_000.0); // Start
+        // After buying 10*200=2000, cash is 98000, but position is worth 2000, total 100000
+        assert!((curve[1].1 - 100_000.0).abs() < 0.01);
+
+        // Close the trade with a profit
+        p.close_trade(id, 220.0).unwrap();
+        let curve = p.equity_curve();
+        // Should have: Start + open + close = 3 points
+        assert_eq!(curve.len(), 3);
+        // After closing: cash = 98000 + 2200 = 100200
+        assert!((curve[2].1 - 100_200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_equity_curve_multiple_trades() {
+        let mut p = Portfolio::new();
+        // Trade 1: Win
+        let id1 = p.open_trade("AAPL", "buy", 10.0, 100.0, "W", 5).unwrap();
+        p.close_trade(id1, 110.0).unwrap(); // +100
+        // Trade 2: Loss
+        let id2 = p.open_trade("MSFT", "buy", 5.0, 200.0, "L", 5).unwrap();
+        p.close_trade(id2, 190.0).unwrap(); // -50
+
+        let curve = p.equity_curve();
+        // Start + open1 + close1 + open2 + close2 = 5 points
+        assert_eq!(curve.len(), 5);
+        assert_eq!(curve[0].1, 100_000.0);
+        // Final should be 100_000 + 100 - 50 = 100_050
+        assert!((curve[4].1 - 100_050.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_equity_chart_empty() {
+        let p = Portfolio::new();
+        let chart = p.equity_chart();
+        assert!(chart.contains("Equity Curve"));
+        assert!(chart.contains("No trade events"));
+    }
+
+    #[test]
+    fn test_equity_chart_with_trades() {
+        let mut p = Portfolio::new();
+        let id = p.open_trade("AAPL", "buy", 10.0, 100.0, "Test", 5).unwrap();
+        p.close_trade(id, 110.0).unwrap();
+        let chart = p.equity_chart();
+        assert!(chart.contains("Equity Curve"));
+        assert!(chart.contains("Start:"));
+        assert!(chart.contains("Sparkline:"));
+        assert!(chart.contains("Max Drawdown"));
     }
 }
