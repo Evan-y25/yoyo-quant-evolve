@@ -529,6 +529,9 @@ fn print_help() {
     println!(
         "  {BOLD}/pf analyze{RESET}           Detect recurring mistake patterns in your trading"
     );
+    println!(
+        "  {BOLD}/pf follow{RESET} [N|#id]     Follow up on closed trades — what happened since you exited?"
+    );
     println!("  {BOLD}/pf reset{RESET}            Reset portfolio to $100K");
     println!();
     println!("  {BOLD}{CYAN}Risk Management{RESET}");

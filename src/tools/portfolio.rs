@@ -1131,6 +1131,59 @@ pub fn export_trades_csv(portfolio: &Portfolio) -> String {
     csv
 }
 
+/// Compute follow-up analysis for a closed trade.
+/// Returns (since_exit_pct, hypothetical_pnl, diff_from_actual, verdict).
+/// `current_price` is the live price of the asset now.
+pub fn compute_trade_followup(
+    trade: &PaperTrade,
+    current_price: f64,
+) -> (f64, f64, f64, &'static str) {
+    let exit_price = trade.exit_price.unwrap_or(trade.entry_price);
+    let pnl = trade.realized_pnl.unwrap_or(0.0);
+
+    let since_exit_pct = if exit_price > 0.0 {
+        ((current_price - exit_price) / exit_price) * 100.0
+    } else {
+        0.0
+    };
+
+    let hypothetical_pnl = if trade.side == "buy" {
+        (current_price - trade.entry_price) * trade.quantity
+    } else {
+        (trade.entry_price - current_price) * trade.quantity
+    };
+
+    let diff = hypothetical_pnl - pnl;
+
+    let verdict = if trade.side == "buy" {
+        if since_exit_pct > 5.0 {
+            "exited_early_significant"
+        } else if since_exit_pct > 2.0 {
+            "exited_early_minor"
+        } else if since_exit_pct < -5.0 {
+            "good_exit_significant"
+        } else if since_exit_pct < -2.0 {
+            "good_exit_minor"
+        } else {
+            "neutral"
+        }
+    } else {
+        if since_exit_pct < -5.0 {
+            "covered_early_significant"
+        } else if since_exit_pct < -2.0 {
+            "covered_early_minor"
+        } else if since_exit_pct > 5.0 {
+            "good_cover_significant"
+        } else if since_exit_pct > 2.0 {
+            "good_cover_minor"
+        } else {
+            "neutral"
+        }
+    };
+
+    (since_exit_pct, hypothetical_pnl, diff, verdict)
+}
+
 /// Log a trade entry to TRADES.md for accountability tracking.
 /// This keeps TRADES.md in sync with the portfolio state.
 pub fn log_trade_to_journal(trade: &PaperTrade, action: &str) -> Result<(), String> {
@@ -1770,5 +1823,114 @@ mod tests {
             report.contains("Confidence Calibration"),
             "Should show confidence analysis"
         );
+    }
+
+    #[test]
+    fn test_followup_buy_exited_early() {
+        let trade = PaperTrade {
+            id: 1,
+            symbol: "bitcoin".into(),
+            side: "buy".into(),
+            quantity: 1.0,
+            entry_price: 80000.0,
+            exit_price: Some(85000.0),
+            reasoning: String::new(),
+            confidence: 7,
+            entry_time: "2026-01-01".into(),
+            exit_time: Some("2026-01-10".into()),
+            realized_pnl: Some(5000.0),
+            stop_loss: None,
+            take_profit: None,
+            trailing_stop_pct: None,
+            highest_price_seen: None,
+            lowest_price_seen: None,
+        };
+
+        // Price went to 95000 after exit — exited too early
+        let (since_exit_pct, hypo_pnl, diff, verdict) = compute_trade_followup(&trade, 95000.0);
+        assert!(since_exit_pct > 10.0); // ~11.8% up since exit
+        assert_eq!(hypo_pnl, 15000.0); // Would have made $15K if held
+        assert_eq!(diff, 10000.0); // Left $10K on table
+        assert_eq!(verdict, "exited_early_significant");
+    }
+
+    #[test]
+    fn test_followup_buy_good_exit() {
+        let trade = PaperTrade {
+            id: 2,
+            symbol: "bitcoin".into(),
+            side: "buy".into(),
+            quantity: 1.0,
+            entry_price: 80000.0,
+            exit_price: Some(85000.0),
+            reasoning: String::new(),
+            confidence: 7,
+            entry_time: "2026-01-01".into(),
+            exit_time: Some("2026-01-10".into()),
+            realized_pnl: Some(5000.0),
+            stop_loss: None,
+            take_profit: None,
+            trailing_stop_pct: None,
+            highest_price_seen: None,
+            lowest_price_seen: None,
+        };
+
+        // Price dropped to 75000 after exit — good exit!
+        let (since_exit_pct, _hypo_pnl, _diff, verdict) = compute_trade_followup(&trade, 75000.0);
+        assert!(since_exit_pct < -10.0); // ~11.8% down since exit
+        assert_eq!(verdict, "good_exit_significant");
+    }
+
+    #[test]
+    fn test_followup_short_covered_early() {
+        let trade = PaperTrade {
+            id: 3,
+            symbol: "AAPL".into(),
+            side: "sell".into(),
+            quantity: 100.0,
+            entry_price: 200.0,
+            exit_price: Some(190.0),
+            reasoning: String::new(),
+            confidence: 6,
+            entry_time: "2026-01-01".into(),
+            exit_time: Some("2026-01-10".into()),
+            realized_pnl: Some(1000.0),
+            stop_loss: None,
+            take_profit: None,
+            trailing_stop_pct: None,
+            highest_price_seen: None,
+            lowest_price_seen: None,
+        };
+
+        // Price dropped further to 170 — covered too early
+        let (since_exit_pct, _hypo_pnl, _diff, verdict) = compute_trade_followup(&trade, 170.0);
+        assert!(since_exit_pct < -10.0);
+        assert_eq!(verdict, "covered_early_significant");
+    }
+
+    #[test]
+    fn test_followup_neutral() {
+        let trade = PaperTrade {
+            id: 4,
+            symbol: "ethereum".into(),
+            side: "buy".into(),
+            quantity: 10.0,
+            entry_price: 2000.0,
+            exit_price: Some(2100.0),
+            reasoning: String::new(),
+            confidence: 5,
+            entry_time: "2026-01-01".into(),
+            exit_time: Some("2026-01-10".into()),
+            realized_pnl: Some(1000.0),
+            stop_loss: None,
+            take_profit: None,
+            trailing_stop_pct: None,
+            highest_price_seen: None,
+            lowest_price_seen: None,
+        };
+
+        // Price barely moved — neutral
+        let (_since_exit_pct, _hypo_pnl, _diff, verdict) = compute_trade_followup(&trade, 2110.0);
+        assert_eq!(verdict, "neutral"); // < 2% change
     }
 }
