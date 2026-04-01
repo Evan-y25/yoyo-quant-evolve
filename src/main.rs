@@ -530,6 +530,9 @@ fn print_help() {
         "  {BOLD}/pf equity{RESET}             Equity curve — visualize portfolio value over time"
     );
     println!(
+        "  {BOLD}/pf calibration{RESET}        Confidence calibration — does your confidence match outcomes?"
+    );
+    println!(
         "  {BOLD}/pf analyze{RESET}           Detect recurring mistake patterns in your trading"
     );
     println!(

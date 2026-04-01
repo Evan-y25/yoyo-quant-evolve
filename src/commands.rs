@@ -624,6 +624,10 @@ pub async fn handle_portfolio_command(input: &str) {
             let portfolio = tools::portfolio::Portfolio::load();
             println!("\n{}", portfolio.equity_chart());
         }
+        Some("calibration") | Some("calibrate") | Some("cal") => {
+            let portfolio = tools::portfolio::Portfolio::load();
+            println!("\n{}", portfolio.calibration_report());
+        }
         Some("analyze") | Some("patterns") | Some("mistakes") => {
             let portfolio = tools::portfolio::Portfolio::load();
             let report = tools::trade_analysis::analyze_trades(&portfolio);

@@ -1075,7 +1075,6 @@ impl Portfolio {
     /// Returns a list of (label, value) points that can be rendered as an ASCII chart.
     /// Each point represents either a trade open or close event.
     pub fn equity_curve(&self) -> Vec<(String, f64)> {
-
         // Collect all trade events sorted chronologically
         let mut events: Vec<(String, u32, &str)> = Vec::new(); // (timestamp, trade_id, "open"/"close")
 
@@ -1164,14 +1163,8 @@ impl Portfolio {
         }
 
         let values: Vec<f64> = curve.iter().map(|(_, v)| *v).collect();
-        let min_val = values
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min);
-        let max_val = values
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+        let min_val = values.iter().copied().fold(f64::INFINITY, f64::min);
+        let max_val = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
         let current = *values.last().unwrap_or(&self.starting_balance);
         let total_return = ((current - self.starting_balance) / self.starting_balance) * 100.0;
@@ -1262,7 +1255,11 @@ impl Portfolio {
             }
 
             // X-axis
-            output.push_str(&format!("  {} └{}\n", "          ", "─".repeat(resampled.len())));
+            output.push_str(&format!(
+                "  {} └{}\n",
+                "          ",
+                "─".repeat(resampled.len())
+            ));
 
             // X-axis labels (start, middle, end)
             let start_label = &curve.first().map(|(l, _)| l.as_str()).unwrap_or("");
@@ -1310,6 +1307,155 @@ impl Portfolio {
         output.push_str("═════════════════════════════════════════\n");
         output.push_str("  ⚠️  Paper trading only — no real money at risk.\n");
 
+        output
+    }
+
+    /// Generate a confidence calibration report.
+    ///
+    /// For each confidence level (1-10), shows the actual win rate vs expected.
+    /// A well-calibrated trader should have ~70% win rate on 7/10 confidence trades.
+    pub fn calibration_report(&self) -> String {
+        use super::format::format_currency;
+        let mut output = String::new();
+        let closed = self.closed_positions();
+
+        output.push_str("🎯 Confidence Calibration Report\n");
+        output.push_str("═════════════════════════════════════════\n");
+
+        if closed.len() < 5 {
+            output.push_str("  Need at least 5 closed trades for calibration.\n");
+            output.push_str(&format!("  Current: {} closed trades.\n", closed.len()));
+            output.push_str("═════════════════════════════════════════\n");
+            return output;
+        }
+
+        // Bucket by confidence level
+        let mut buckets: [Vec<&PaperTrade>; 11] = Default::default();
+        for trade in &closed {
+            let conf = (trade.confidence as usize).min(10);
+            buckets[conf].push(trade);
+        }
+
+        output.push_str("  The ideal: confidence 7 ≈ 70% win rate, confidence 3 ≈ 30%.\n");
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str("  Conf  Trades  Wins  WR%   Avg P&L   Bar\n");
+        output.push_str("  ────  ──────  ────  ────  ────────  ────────────────\n");
+
+        let mut total_calibration_error = 0.0f64;
+        let mut calibration_points = 0u32;
+
+        for conf in 1..=10 {
+            let trades = &buckets[conf];
+            if trades.is_empty() {
+                continue;
+            }
+            let total = trades.len();
+            let wins = trades
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                .count();
+            let wr = (wins as f64 / total as f64) * 100.0;
+            let avg_pnl: f64 = trades
+                .iter()
+                .map(|t| t.realized_pnl.unwrap_or(0.0))
+                .sum::<f64>()
+                / total as f64;
+
+            // Expected win rate = confidence * 10%
+            let expected_wr = conf as f64 * 10.0;
+            let calibration_diff = wr - expected_wr;
+
+            if total >= 2 {
+                total_calibration_error += calibration_diff.abs();
+                calibration_points += 1;
+            }
+
+            // Visual bar: filled proportional to win rate
+            let bar_len = 16;
+            let filled = (wr / 100.0 * bar_len as f64).round() as usize;
+            let bar: String =
+                "█".repeat(filled.min(bar_len)) + &"░".repeat(bar_len.saturating_sub(filled));
+
+            // Color indicator: green if close to expected, red if way off
+            let status = if (calibration_diff).abs() <= 15.0 {
+                "✅"
+            } else if calibration_diff > 15.0 {
+                "🔼" // Actual higher than expected
+            } else {
+                "🔻" // Actual lower than expected
+            };
+
+            output.push_str(&format!(
+                "  {:<4}  {:>6}  {:>4}  {:>3.0}%  {:>8}  {} {}\n",
+                conf,
+                total,
+                wins,
+                wr,
+                format_currency(avg_pnl),
+                bar,
+                status,
+            ));
+        }
+
+        output.push_str("─────────────────────────────────────────\n");
+
+        // Overall calibration score
+        if calibration_points > 0 {
+            let avg_error = total_calibration_error / calibration_points as f64;
+            let calibration_grade = if avg_error < 10.0 {
+                "Excellent calibration! 🎯"
+            } else if avg_error < 20.0 {
+                "Good calibration 👍"
+            } else if avg_error < 35.0 {
+                "Fair — room for improvement"
+            } else {
+                "Poor calibration — confidence doesn't match outcomes"
+            };
+
+            output.push_str(&format!(
+                "  Avg calibration error: {:.1}% — {}\n",
+                avg_error, calibration_grade
+            ));
+        }
+
+        // Overall insight
+        let high_conf: Vec<&&PaperTrade> = closed.iter().filter(|t| t.confidence >= 7).collect();
+        let low_conf: Vec<&&PaperTrade> = closed.iter().filter(|t| t.confidence <= 4).collect();
+
+        if high_conf.len() >= 3 && low_conf.len() >= 3 {
+            let high_wr = high_conf
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                .count() as f64
+                / high_conf.len() as f64
+                * 100.0;
+            let low_wr = low_conf
+                .iter()
+                .filter(|t| t.realized_pnl.unwrap_or(0.0) > 0.0)
+                .count() as f64
+                / low_conf.len() as f64
+                * 100.0;
+
+            if high_wr > low_wr + 10.0 {
+                output.push_str(
+                    "  ✅ Higher confidence = higher win rate. Your gut is well-calibrated.\n",
+                );
+            } else if low_wr > high_wr + 10.0 {
+                output.push_str("  ⚠️  You trade BETTER with low confidence. Overconfidence may be clouding your judgment.\n");
+            } else {
+                output.push_str(
+                    "  💡 Confidence doesn't strongly predict outcomes yet. Keep tracking.\n",
+                );
+            }
+        }
+
+        // Tip
+        output.push_str("─────────────────────────────────────────\n");
+        output.push_str(
+            "  Legend: ✅ = well-calibrated  🔼 = beating expectations  🔻 = below expectations\n",
+        );
+        output.push_str("  💡 Size up on well-calibrated high-confidence trades.\n");
+        output.push_str("═════════════════════════════════════════\n");
         output
     }
 }
@@ -2193,7 +2339,7 @@ mod tests {
         // Should have: Start + open event = 2 points
         assert_eq!(curve.len(), 2);
         assert_eq!(curve[0].1, 100_000.0); // Start
-        // After buying 10*200=2000, cash is 98000, but position is worth 2000, total 100000
+                                           // After buying 10*200=2000, cash is 98000, but position is worth 2000, total 100000
         assert!((curve[1].1 - 100_000.0).abs() < 0.01);
 
         // Close the trade with a profit
@@ -2211,7 +2357,7 @@ mod tests {
         // Trade 1: Win
         let id1 = p.open_trade("AAPL", "buy", 10.0, 100.0, "W", 5).unwrap();
         p.close_trade(id1, 110.0).unwrap(); // +100
-        // Trade 2: Loss
+                                            // Trade 2: Loss
         let id2 = p.open_trade("MSFT", "buy", 5.0, 200.0, "L", 5).unwrap();
         p.close_trade(id2, 190.0).unwrap(); // -50
 
@@ -2241,5 +2387,36 @@ mod tests {
         assert!(chart.contains("Start:"));
         assert!(chart.contains("Sparkline:"));
         assert!(chart.contains("Max Drawdown"));
+    }
+
+    #[test]
+    fn test_calibration_report_empty() {
+        let p = Portfolio::new();
+        let report = p.calibration_report();
+        assert!(report.contains("Confidence Calibration"));
+        assert!(report.contains("Need at least 5"));
+    }
+
+    #[test]
+    fn test_calibration_report_with_trades() {
+        let mut p = Portfolio::new();
+        // High confidence wins
+        for i in 0..3 {
+            let id = p
+                .open_trade("AAPL", "buy", 1.0, 100.0 + i as f64, "HC win", 8)
+                .unwrap();
+            p.close_trade(id, 110.0 + i as f64).unwrap();
+        }
+        // Low confidence losses
+        for i in 0..3 {
+            let id = p
+                .open_trade("MSFT", "buy", 1.0, 200.0 + i as f64, "LC loss", 3)
+                .unwrap();
+            p.close_trade(id, 190.0 + i as f64).unwrap();
+        }
+        let report = p.calibration_report();
+        assert!(report.contains("Confidence Calibration"));
+        assert!(report.contains("Conf"));
+        assert!(report.contains("WR%"));
     }
 }
